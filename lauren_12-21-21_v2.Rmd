@@ -1,0 +1,136 @@
+---
+title: "Lauren Meeting"
+author: "Blain Morin"
+date: "12/21/2021"
+output: pdf_document
+---
+
+## Notes
+
+* We wanted to find when the "turn off" date for states where sobriety checkpoints are not legal
+  * I have filled in the off dates in the spreadsheet
+  * Might still need to fill in "turn on" dates
+* Ten states explicitly do not permit sobriety checkpoints: Idaho, Iowa, Michigan, Minnesota, Oregon, Rhode Island, Texas, Washington, Wisconsin, and Wyoming
+
+
+## Events Study: Total DUI Arrests
+
+* As a test, I am using three treated states (treated means they "turned off" checkpoints) and one control state (control means they never turned off checkpoints).
+
+I chose three states were the turn off dates were kind of close to each other: WI, WA, and RI. OH is the control state.
+
+Here is the data structure:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+
+```
+
+
+
+
+
+```{r}
+
+states = c("WA", "WI", "RI", "OH")
+treated_states = c("washington", "wisconsin", "rhode island")
+
+
+df1988 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1988.rds") %>%
+  filter(state_abb %in% states) %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1989 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1989.rds") %>%
+  filter(state_abb %in% states) %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1990 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1990.rds") %>%
+  filter(state_abb %in% states) %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1991 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1991.rds") %>%
+  filter(state_abb %in% states) %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1992 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1992.rds") %>%
+  filter(state_abb %in% states) %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df = rbind(df1988, df1989, df1990, df1991, df1992)
+
+remove(df1988, df1989, df1990, df1991, df1992)
+
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(d, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests)) %>%
+  ungroup()
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = my(treatdate))
+
+df.sum = df.sum %>%
+  mutate(timetotreat = interval(treatdate, d) %/% months(1)) %>%
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  mutate(fd = as.factor(d)) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(treated = replace_na(treated, 0))
+
+```
+
+```{r}
+
+check = head(df.sum, n = 10)
+check
+
+```
+
+The main interaction of interest is between the timetotreat and treated variables. 
+
+\newpage
+
+## Outcome: DUI Total Arrests
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+dui.model = feols(DUI_Total ~ i(timetotreat, treated, ref = 0) | ## Model
+                      state + fd, ## Fixed Effects
+                    cluster = ~state + fd, ## Se Clustering
+                    data = df.sum)
+
+iplot(dui.model, 
+      xlab = 'Time to treatment (Months)',
+      main = 'Event study: Total Dui Arrests')
+
+```
+
+\newpage
+
+## Outcome = Proportion DUI arrests that were Black
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+dui.model = feols(DUI_p.Black ~ i(timetotreat, treated, ref = 0) | ## Model
+                      state + fd, ## Fixed Effects
+                    cluster = ~state + fd, ## Se Clustering
+                    data = df.sum)
+
+iplot(dui.model, 
+      xlab = 'Time to treatment (Months)',
+      main = 'Event study: Proportion Black DUI Arrests')
+
+```
