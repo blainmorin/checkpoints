@@ -1,0 +1,131 @@
+---
+title: "Explore"
+author: "Blain Morin"
+date: "12/21/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+
+```
+
+
+```{r}
+
+### Wisconson
+
+df1990 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1990.rds")%>%
+  filter(state_abb == "WI") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+
+df1991 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1991.rds") %>%
+  filter(state_abb == "WI") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1992 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1992.rds") %>%
+  filter(state_abb == "WI") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+WI = rbind(df1990, df1991, df1992)
+
+remove(df1990, df1991, df1992)
+
+WIdf = WI %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(d) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests)) %>%
+  mutate(State = "WI") %>%
+  arrange(d)
+
+myrange = interval(start = my("Aug 1990"), end = my("Aug 1992"))
+
+WIdf = WIdf %>%
+  filter(d %within% myrange) 
+
+WIdf$int_date = 1:nrow(WIdf)
+
+WIdf = WIdf %>%
+  mutate(treat = ifelse(int_date >= 13, 1, 0))
+
+WIdf = WIdf %>%
+  mutate(time_to_treat = interval(my("Aug 1991"), d) %/% months(1)) %>%
+  mutate(fd = as.factor(int_date))
+
+
+```
+
+
+```{r}
+
+### Washington
+
+df1987 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1987.rds")%>%
+  filter(state_abb == "WA") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+
+df1988 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1988.rds") %>%
+  filter(state_abb == "WA") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1989 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1989.rds") %>%
+  filter(state_abb == "WA") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+WA = rbind(df1987, df1988, df1989)
+
+remove(df1987, df1988, df1989)
+
+WAdf = WA %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(d) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests)) %>%
+  mutate(State = "WA") %>%
+  arrange(d)
+
+myrange = interval(start = my("May 1987"), end = my("May 1989"))
+
+WAdf = WAdf %>%
+  filter(d %within% myrange) 
+
+WAdf$int_date = 1:nrow(WAdf)
+
+WAdf = WAdf %>%
+  mutate(treat = ifelse(int_date >= 13, 1, 0)) %>%
+  mutate(time_to_treat = interval(my("May 1988"), d) %/% months(1)) %>%
+  mutate(fd = as.factor(int_date))
+
+
+
+```
+
+
+```{r}
+
+df = rbind(WIdf, WAdf)
+
+dui.model = feols(DUI_Total ~ i(time_to_treat, treat, ref = 0) | ## Model
+                      State, ## Fixed Effects
+                    cluster = ~State, ## Se Clustering
+                    data = df)
+
+iplot(dui.model, 
+      xlab = 'Time to treatment',
+      main = 'Event study: Staggered treatment (TWFE)')
+
+```

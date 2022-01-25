@@ -167,7 +167,7 @@ df5 %>%
   theme(strip.text = element_text(colour = 'white')) +
   theme(legend.position = "none") +
   ylab("Total DUIs") +
-  xlab("Time to Treatment (0 = Checkpoints Ruled Illegal") +
+  xlab("Time to Treatment (0 = Checkpoints Ruled Illegal)") +
   geom_vline(xintercept = 0, linetype="dashed")
 
 ```
@@ -215,7 +215,7 @@ df5 %>%
   theme(strip.text = element_text(colour = 'white')) +
   theme(legend.position = "none") +
   ylab("Proportion Black Person DUI") +
-  xlab("Time to Treatment (0 = Checkpoints Ruled Illegal") +
+  xlab("Time to Treatment (0 = Checkpoints Ruled Illegal)") +
   geom_vline(xintercept = 0, linetype="dashed")
 
 ```
