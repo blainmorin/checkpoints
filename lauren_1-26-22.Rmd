@@ -1,7 +1,7 @@
 ---
 title: "Year Arrests, FERC Data"
 author: "Blain Morin"
-date: "1/25/2022"
+date: "1/26/2022"
 output: html_document
 ---
 
@@ -193,8 +193,39 @@ iplot(dui.model,
 
 # Crashes
 
-```{r}
+* Using "FARS19752016_clean.dta" from the OneDrive folder
 
+* To get number of drunk drivers, I grouped by state and year, then summed the "vehdrdrive" column
+  * Ditto for drugs and the "drugs" column
+
+* For fatalities, I grouped by state, year, and crashid, then sliced 1 observation and summed
+
+
+
+```{r, echo = TRUE}
+
+### Read in FARS data
 fars = read_dta("FARS19752016_clean.dta")
+
+
+### Get state identifiers to attach to FARS
+state.id = read_csv("accident.CSV") %>%
+  select(STATE, STATENAME) %>%
+  group_by(STATENAME) %>%
+  slice(1) %>%
+  mutate(STATENAME = tolower(STATENAME)) %>%
+  rename(state = STATE)
+
+
+fars2 = fars %>%
+  select(state, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME) %>%
+  summarise(drunks = sum(vehdrdrive, na.rm = TRUE),
+            druggies = sum(drugs, na.rm = TRUE))
+
+
 
 ```
