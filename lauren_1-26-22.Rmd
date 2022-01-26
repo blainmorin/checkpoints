@@ -1,0 +1,104 @@
+---
+title: "Year Arrests, FERC Data"
+author: "Blain Morin"
+date: "1/25/2022"
+output: html_document
+---
+
+# Recap
+
+* Redo arrest analysis using +-6 years, instead of using +-12 months
+
+* Run the analysis using FARS crash data
+
+# Arrests
+
+* Drop Wyoming because of the lower bound of arrest data (Wyoming ends in 1975 and arrests data starts at 1974)
+  * Maybe model can work with the cutoff, but need to think on it
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+
+```
+
+
+```{r}
+
+states = c("WA", "WI", "RI", "OH", "TX", "ID", "IA", "MI", "MN", "OR")
+treated_states = c("washington", "wisconsin", "rhode island", "texas",
+                   "wyoming", "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+df = data.frame()
+
+
+
+df1974 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1974.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1975 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1975.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1976 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1976.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1976 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1976.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1985 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1985.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1986 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1986.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1987 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1987.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1988 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1988.rds") %>%
+  filter(state_abb %in% states) %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1989 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1989.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1990 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1990.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1991 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1991.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1992 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1992.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1993 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1993.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1994 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1994.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df1995 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1995.rds") %>%
+  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+
+df = rbind(df1974, df1975, df1976,
+           df1985, df1986,
+       df1987, df1988,
+           df1988, df1989, df1990, df1991, df1992,
+           df1993, df1994, df1995)
+
+remove(df1974, df1975, df1976,
+           df1985, df1986,
+       df1987, df1988,
+           df1988, df1989, df1990, df1991, df1992,
+           df1993, df1994, df1995)
