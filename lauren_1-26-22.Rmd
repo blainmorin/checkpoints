@@ -23,6 +23,7 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TR
 
 library(tidyverse)
 library(lubridate)
+library(haven)
 library(readr)
 library(plotly)
 library(ggridges)
@@ -192,4 +193,8 @@ iplot(dui.model,
 
 # Crashes
 
+```{r}
 
+fars = read_dta("FARS19752016_clean.dta")
+
+```
