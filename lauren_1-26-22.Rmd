@@ -43,62 +43,45 @@ treated_states = c("washington", "wisconsin", "rhode island", "texas",
 
 df = data.frame()
 
+for (i in 1974:2020) {
+  
+  filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+  
+  temp = readRDS(filename) %>%
+    select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+  
+  df = rbind(df, temp)
+  
+}
 
 
-df1974 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1974.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests)) %>%
+  ungroup()
 
-df1975 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1975.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
 
-df1976 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1976.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+df.sum = df.sum %>%
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  mutate(fyear = as.factor(year)) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(treated = replace_na(treated, 0))
 
-df1976 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1976.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+```
 
-df1985 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1985.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1986 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1986.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1987 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1987.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1988 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1988.rds") %>%
-  filter(state_abb %in% states) %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1989 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1989.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1990 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1990.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1991 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1991.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1992 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1992.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1993 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1993.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1994 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1994.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df1995 = readRDS("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_1995.rds") %>%
-  select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
-
-df = rbind(df1974, df1975, df1976,
-           df1985, df1986,
-       df1987, df1988,
-           df1988, df1989, df1990, df1991, df1992,
-           df1993, df1994, df1995)
-
-remove(df1974, df1975, df1976,
-           df1985, df1986,
-       df1987, df1988,
-           df1988, df1989, df1990, df1991, df1992,
-           df1993, df1994, df1995)
