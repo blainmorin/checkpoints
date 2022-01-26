@@ -195,10 +195,10 @@ iplot(dui.model,
 
 * Using "FARS19752016_clean.dta" from the OneDrive folder
 
-* To get number of drunk drivers, I grouped by state and year, then summed the "vehdrdrive" column
+* To get number of drunk drivers in a state-year, I grouped by state and year, then summed the "vehdrdrive" column
   * Ditto for drugs and the "drugs" column
 
-* For fatalities, I grouped by state, year, and crashid, then sliced 1 observation and summed
+* For fatalities in a state-year, I grouped by state, year, and crashid, then sliced 1 observation and summed
 
 
 
@@ -216,7 +216,7 @@ state.id = read_csv("accident.CSV") %>%
   mutate(STATENAME = tolower(STATENAME)) %>%
   rename(state = STATE)
 
-
+### Drunks and druggies calculation
 fars2 = fars %>%
   select(state, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
   mutate(year = substr(crashid, 1, 4)) %>%
@@ -224,8 +224,30 @@ fars2 = fars %>%
   left_join(state.id) %>%
   group_by(year, STATENAME) %>%
   summarise(drunks = sum(vehdrdrive, na.rm = TRUE),
-            druggies = sum(drugs, na.rm = TRUE))
+            druggies = sum(drugs, na.rm = TRUE)) %>%
+  rename(state = STATENAME)
+
+### 
+fars3 = fars %>%
+  select(state, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, crashid) %>%
+  slice(1) %>%
+  ungroup() %>%
+  group_by(year, STATENAME) %>%
+  summarise(fatals = sum(numaccfats)) %>%
+  rename(state = STATENAME)
 
 
+```
+
+
+```{r}
+
+df.sum.fars = df.sum %>%
+  left_join(fars2) %>%
+  left_join(fars3)
 
 ```
