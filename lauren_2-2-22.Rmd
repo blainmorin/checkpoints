@@ -1,0 +1,427 @@
+---
+title: "Lauren Meeting"
+author: "Blain Morin"
+date: "2/1/2022"
+output: html_document
+---
+
+### Random links of possible interest
+
+* [Mothers against drunk driving liquor law rating for each state](https://online.flippingbook.com/view/361187/)
+  * Might be a good control
+
+* [Pretty good website for sobriety checkpoint status by state](https://www.responsibility.org/alcohol-statistics/state-map/state/georgia/issue/sobriety-checkpoints/)
+  * Checkpoints clearly permitted in 38 states
+  * Some interesting nuance. For example, checkpoints are legal under Missouri law, but the state budget prohibits funding their administration. 
+
+* [New Hampshire passes a law in 2018 to ban sobriety checkpoints (might be the only case where it turned on then off)](https://www.concordmonitor.com/New-Hampshire-House-passes-ban-on-police-sobriety-checkpoints-15744144#:~:text=House%20passes%20ban%20on%20police%20sobriety%20checkpoints,-Lt.&text=House%20representatives%20passed%20a%20bill,practice%20is%20unconstitutional%20and%20ineffective.)
+
+
+
+
+
+
+  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(haven)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+
+```
+
+
+```{r}
+
+df = data.frame()
+
+for (i in 1974:2020) {
+  
+  filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+  
+  temp = readRDS(filename) %>%
+    select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+  
+  df = rbind(df, temp)
+  
+}
+
+
+```
+
+# Rerun Prior Analysis Using Proportion Hispanic
+
+```{r}
+
+
+treated_states = c("washington", "wisconsin", "rhode island", "texas", "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests),
+            DUI_p.Hispanic = sum(dui_tot_hispanic) / sum(dui_tot_arrests)) %>%
+  ungroup()
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  mutate(fyear = as.factor(year)) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(treated = replace_na(treated, 0))
+
+
+```
+
+```{r}
+
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+df2 = df.sum %>%
+  filter(!state %in% nonstate)
+
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+
+rel.dates = df3$fyear
+
+df4 = df2 %>%
+  filter(fyear %in% rel.dates) %>%
+  mutate(timetotreat = ifelse(timetotreat < -6, 0, timetotreat)) %>%
+  mutate(timetotreat = ifelse(timetotreat > 6, 0, timetotreat))
+
+```
+
+## Outcome: Proportion Hispanic Person DUI arrests 
+
+### Exploratory Graphic
+
+```{r, fig.width=12, fig.height=10}
+
+df5 = df2 %>%
+  filter(treated == 1) %>% 
+  filter(timetotreat >= -6 & timetotreat <= 6) %>%
+  drop_na()
+
+df5 %>%
+  ggplot(aes(x = timetotreat, y = DUI_p.Hispanic)) +
+  geom_point(aes(color = state)) +
+  geom_line(aes(color = state)) +
+  facet_wrap(~state)+
+  theme_bw() +
+  theme(strip.background =element_rect(fill="black")) +
+  theme(strip.text = element_text(colour = 'white')) +
+  theme(legend.position = "none") +
+  ylab("Proportion Hispanic Person DUI") +
+  xlab("Time to Treatment (0 = Checkpoints Ruled Illegal)") +
+  geom_vline(xintercept = 0, linetype="dashed")
+
+```
+
+
+* It's strange that after the cutoff all states are 0. I spot checked some of these years and found that Hispanic totals are 0 for these years. Think it is missing data. 
+
+
+### Event Study
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+dui.model = feols(DUI_p.Hispanic ~ i(timetotreat, treated, ref = 0) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    data = df4)
+
+iplot(dui.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Proportion Hispanic DUI Arrests')
+
+```
+
+
+
+
+# Using "checkpoints ruled legal" as the treatment
+
+* Using 1998 for Mississippi turn on year because of spreadsheet notes saying that this is the first checkpoint case
+
+* If date not found, using Federal Upholding year (1990)
+  * Utah
+
+
+```{r}
+
+treated_states = tolower(c(state.name[c(1, 3:11,
+                                      13:14, 16:21, 
+                                      24, 27:36,
+                                      38, 41, 42,
+                                      44:46, 48)],
+                         "district of columbia"))
+
+
+
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests),
+            DUI_p.Hispanic = sum(dui_tot_hispanic) / sum(dui_tot_arrests)) %>%
+  ungroup()
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "alabama", "Jan 1987", NA)) %>%
+  mutate(treatdate = ifelse(state == "arizona", "Jan 1984", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "arkansas", "Jan 1992", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "california", "Jan 1987", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "colorado", "Jan 1990", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "connecticut", "Jan 1996", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "delaware", "Jan 1979", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "florida", "Jan 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "georgia", "Jan 1984", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "hawaii", "Jan 2000", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "illinois", "Jan 1985", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "indiana", "Jan 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "kansas", "Jan 1983", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "kentucky", "Jan 1984", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "louisiana", "Jan 2000", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "maine", "Jan 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "maryland", "Jan 1984", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "massachusetts", "Jan 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "mississippi", "Jan 1998", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "nebraska", "Jan 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "nevada", "Jan 1987", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "new hampshire", "Jan 2003", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "new jersey", "Jan 1989", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "new mexico", "Jan 1987", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "new york", "Jan 1984", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "north carolina", "Jan 1983", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "north dakota", "Jan 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "ohio", "Jan 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oklahoma", "Jan 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "pennsylvania", "Jan 1987", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "south dakota", "Jan 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "tennessee", "Jan 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "utah", "Jan 1990", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "vermont", "Jan 1985", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "virginia", "Jan 1985", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "west virginia", "Jan 1995", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "district of columbia", "Jan 1991", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  mutate(fyear = as.factor(year)) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(treated = replace_na(treated, 0))
+
+
+
+```
+
+```{r}
+
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+df2 = df.sum %>%
+  filter(!state %in% nonstate)
+
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+
+rel.dates = df3$fyear
+
+df4 = df2 %>%
+  filter(fyear %in% rel.dates) %>%
+  mutate(timetotreat = ifelse(timetotreat < -6, 0, timetotreat)) %>%
+  mutate(timetotreat = ifelse(timetotreat > 6, 0, timetotreat))
+
+```
+
+
+## Outcome: Total DUI Arrests
+
+### Exploratory Graphic
+
+```{r, fig.width=12, fig.height=12}
+
+df5 = df2 %>%
+  filter(treated == 1) %>% 
+  filter(timetotreat >= -6 & timetotreat <= 6) %>%
+  drop_na()
+
+df5 %>%
+  ggplot(aes(x = timetotreat, y = DUI_Total)) +
+  geom_point(aes(color = state)) +
+  geom_line(aes(color = state)) +
+  facet_wrap(~state)+
+  theme_bw() +
+  theme(strip.background =element_rect(fill="black")) +
+  theme(strip.text = element_text(colour = 'white')) +
+  theme(legend.position = "none") +
+  ylab("Total DUIs") +
+  xlab("Time to Treatment (0 = Checkpoints Upheld)") +
+  geom_vline(xintercept = 0, linetype="dashed")
+
+```
+
+* We would expect no effect or a positive effect
+
+* Looks like a negative effect in:
+  * California
+  * Georgia
+  * Kentucky
+
+* Otherwise pretty flat for most states
+
+### Event Study
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+dui.model = feols(DUI_Total ~ i(timetotreat, treated, ref = 0) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    data = df4)
+
+iplot(dui.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total DUI Arrests')
+
+```
+
+
+### Weighted Event Study
+
+* Using the population file from OneDrive
+
+```{r}
+
+library(readxl)
+state_populations = read_excel("laws and population.xlsx")
+
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+df4 = df4 %>%
+  left_join(state_populations) %>%
+  drop_na(population)
+
+
+```
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+dui.model = feols(DUI_Total ~ i(timetotreat, treated, ref = 0) | ## Model
+                    state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = df4$population,
+                    data = df4)
+
+iplot(dui.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total DUI Arrests')
+
+```
+
+
+# Recreational Marijuana Legalization as Treatment
+
+```{r}
+
+treated_states = c("alaska",
+                   "arizona",
+                   "california",
+                   "colorado",
+                   "illinois",
+                   "maine",
+                   "michigan",
+                   "montana",
+                   "nevada",
+                   "new jersey",
+                   "oregon",
+                   "south dakota",
+                   "vermont",
+                   "washington")
+
+
+
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests),
+            DUI_p.Hispanic = sum(dui_tot_hispanic) / sum(dui_tot_arrests)) %>%
+  ungroup()
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "alaska", "Feb 2015", NA)) %>%
+  mutate(treatdate = ifelse(state == "arizona", "Nov 2020", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "california", "Nov 2020", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  mutate(fyear = as.factor(year)) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(treated = replace_na(treated, 0))
+
+
+
+```
+
+```{r}
+
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+df2 = df.sum %>%
+  filter(!state %in% nonstate)
+
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+
+rel.dates = df3$fyear
+
+df4 = df2 %>%
+  filter(fyear %in% rel.dates) %>%
+  mutate(timetotreat = ifelse(timetotreat < -6, 0, timetotreat)) %>%
+  mutate(timetotreat = ifelse(timetotreat > 6, 0, timetotreat))
+
+```
+
