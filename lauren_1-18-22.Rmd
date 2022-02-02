@@ -125,7 +125,7 @@ df.sum = df.sum %>%
 
 ```{r}
 
-nonstate = c("canal zone", "guam")
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
 
 df2 = df.sum %>%
   filter(!state %in% nonstate)
