@@ -33,7 +33,7 @@ treated_states = c("washington", "wisconsin", "rhode island", "texas", "idaho", 
 
 df = data.frame()
 
-for (i in 1974:2020) {
+for (i in 1978:2005) {
   
   filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
   
@@ -179,7 +179,7 @@ fars3 = fars %>%
             n_crashes = n()) %>%
   rename(state = STATENAME)
 
-rm(fars)
+
 
 ```
 
@@ -248,6 +248,7 @@ iplot(fatal.model,
 
 # Population and Effect Size
 
+$$\Delta = \frac{\bar{DUI_{after}} - \bar{DUI_{before}}}{\bar{DUI_{before}}}$$
 
 ```{r}
 
@@ -280,6 +281,149 @@ df.sum = df.sum %>%
   mutate(timetotreat = replace_na(timetotreat, 0)) %>%
   mutate(treated = replace_na(treated, 0))
 
+### Drunks and druggies calculation
+fars2 = fars %>%
+  select(state, county, month, crashid, numaccfats, vehdrdrive, drugs, race, weed) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, county) %>%
+  summarise(drunks = sum(vehdrdrive, na.rm = TRUE),
+            druggies = sum(drugs, na.rm = TRUE),
+            potheads = sum(weed, na.rm = TRUE)) %>%
+  rename(state = STATENAME, fips_county_code = county) %>%
+  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+
+### Fatal and Accidents Calculation
+fars3 = fars %>%
+  select(state, county, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, crashid) %>%
+  slice(1) %>%
+  ungroup() %>%
+  group_by(year, STATENAME, county) %>%
+  summarise(fatals = sum(numaccfats),
+            n_crashes = n()) %>%
+  rename(state = STATENAME, fips_county_code = county) %>%
+  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+
+
+
+df.sum.fars = df.sum %>%
+  left_join(fars2) %>%
+  left_join(fars3)
+
+
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+df2 = df.sum.fars %>%
+  filter(!state %in% nonstate)
+
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+
+df4 = df3 %>%
+  mutate(after = ifelse(timetotreat > 0, "after", "before")) %>%
+  group_by(state, fips_county_code, after) %>%
+  summarise(ave_dui = mean(DUI_Total, na.rm = TRUE)) %>%
+  spread(key = after, value = ave_dui) %>%
+  mutate(delta = (after - before) / after)
+
+
+temp = df3 %>%
+  select(state, fips_county_code, county_population) %>%
+  group_by(state, fips_county_code) %>%
+  summarise(population = mean(county_population, na.rm = TRUE))
+
+df5 = df4 %>%
+  left_join(temp)
+
+df5 %>%
+  filter(population > 0) %>%
+  ggplot(aes(y = delta, x = log(population))) +
+  geom_point(alpha = .6) + 
+  facet_wrap(~state) +
+  ylim(-4, 1) +
+  theme_bw() +
+  geom_smooth(method = "lm", se = FALSE) +
+  ggtitle("County Population Versus Delta Total DUI")
+
+
 ```
 
+```{r}
 
+df2 = df.sum.fars %>%
+  filter(!state %in% nonstate)
+
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+
+df4 = df3 %>%
+  mutate(after = ifelse(timetotreat > 0, "after", "before")) %>%
+  group_by(state, fips_county_code, after) %>%
+  summarise(ave_p.black = mean(DUI_p.Black, na.rm = TRUE)) %>%
+  spread(key = after, value = ave_p.black) %>%
+  mutate(delta = (after - before) / after)
+
+
+temp = df3 %>%
+  select(state, fips_county_code, county_population) %>%
+  group_by(state, fips_county_code) %>%
+  summarise(population = mean(county_population, na.rm = TRUE))
+
+df5 = df4 %>%
+  left_join(temp)
+
+df5 %>%
+  filter(population > 0) %>%
+  ggplot(aes(y = delta, x = log(population))) +
+  geom_point(alpha = .6) + 
+  facet_wrap(~state) +
+  ylim(-4, 1) +
+  theme_bw() +
+  geom_smooth(method = "lm", se = FALSE) +
+  ggtitle("County Population Versus Delta Proportion Black DUI")
+
+```
+
+```{r}
+
+df2 = df.sum.fars %>%
+  filter(!state %in% nonstate)
+
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+
+df4 = df3 %>%
+  mutate(after = ifelse(timetotreat > 0, "after", "before")) %>%
+  group_by(state, fips_county_code, after) %>%
+  summarise(ave_crash = mean(n_crashes, na.rm = TRUE)) %>%
+  spread(key = after, value = ave_crash) %>%
+  mutate(delta = (after - before) / after)
+
+
+temp = df3 %>%
+  select(state, fips_county_code, county_population) %>%
+  group_by(state, fips_county_code) %>%
+  summarise(population = mean(county_population, na.rm = TRUE))
+
+df5 = df4 %>%
+  left_join(temp)
+
+df5 %>%
+  filter(population > 0) %>%
+  ggplot(aes(y = delta, x = log(population))) +
+  geom_point(alpha = .6) + 
+  facet_wrap(~state) +
+  ylim(-4, 1) +
+  theme_bw() +
+  geom_smooth(method = "lm", se = FALSE) +
+  ggtitle("County Population Versus Delta n Fatal Crashes")
+
+```
