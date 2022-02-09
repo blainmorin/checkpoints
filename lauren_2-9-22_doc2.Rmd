@@ -1,0 +1,85 @@
+---
+title: "Medical Marijuana"
+author: "Blain Morin"
+date: "2/9/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+library(haven)
+
+```
+
+
+```{r}
+
+treated_states = c("alaska", "arizona", "arkansas",
+                   "california", "colorado", "connecticut",
+                   "delaware", "florida", "hawaii",
+                   "illinois", "louisiana", "maine",
+                   "maryland", "massachusetts", "michigan",
+                   "minnesota", "mississippi", "missouri",
+                   "montana", "nevada", "new hampshire",
+                   "new jersey", "new mexico", "new york",
+                   "north dakota", "ohio", "oklahoma", 
+                   "oregon", "pennsylvania", "rhode island",
+                   "south dakota", "utah", "vermont",
+                   "virginia", "washington", "west virginia")
+
+df = data.frame()
+
+for (i in 1986:2020) {
+  
+  filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+  
+  temp = readRDS(filename) %>%
+    select(fips_county_code, state, population, agency_name, year, month, starts_with("dui"))
+  
+  df = rbind(df, temp)
+  
+}
+
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests),
+            DUI_p.Hispanic = sum(dui_tot_hispanic) / sum(dui_tot_arrests)) %>%
+  ungroup()
+
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "alaska", "Mar 1999", NA)) %>%
+  mutate(treatdate = ifelse(state == "arizona", "Apr 2011", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "arkansas", "Nov 2016", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "california", "Nov 1996", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "colorado", "June 2001", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "connecticut", "June 2012", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "delaware", "July 2011", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "florida", "Jan 2017", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "hawaii", "June 2000", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  mutate(fyear = as.factor(year)) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(treated = replace_na(treated, 0))
+
+```
+
+
+
