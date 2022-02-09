@@ -1,0 +1,200 @@
+---
+title: "Meeting"
+author: "Blain Morin"
+date: "2/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+library(haven)
+
+```
+
+
+
+# Redo checkpoint-off states with weights
+
+```{r}
+
+states = c("WA", "WI", "RI", "OH", "TX", "ID", "IA", "MI", "MN", "OR")
+treated_states = c("washington", "wisconsin", "rhode island", "texas", "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+df = data.frame()
+
+for (i in 1974:2020) {
+  
+  filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+  
+  temp = readRDS(filename) %>%
+    select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+  
+  df = rbind(df, temp)
+  
+}
+
+
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests)) %>%
+  ungroup()
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  mutate(fyear = as.factor(year)) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(treated = replace_na(treated, 0))
+
+
+```
+
+
+```{r}
+
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+df2 = df.sum %>%
+  filter(!state %in% nonstate)
+
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+
+rel.dates = df3$fyear
+
+df4 = df2 %>%
+  filter(fyear %in% rel.dates) %>%
+  mutate(timetotreat = ifelse(timetotreat < -6, 0, timetotreat)) %>%
+  mutate(timetotreat = ifelse(timetotreat > 6, 0, timetotreat))
+
+```
+
+
+```{r}
+
+library(readxl)
+state_populations = read_excel("laws and population.xlsx")
+
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+df4 = df4 %>%
+  left_join(state_populations) %>%
+  drop_na(population)
+
+
+```
+
+
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+dui.model = feols(DUI_Total ~ i(timetotreat, treated, ref = 0) | ## Model
+                    state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = df4$population,
+                    data = df4)
+
+iplot(dui.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total DUI Arrests')
+
+
+```
+
+
+```{r, echo = TRUE}
+
+### Read in FARS data
+fars = read_dta("FARS19752016_clean.dta")
+
+fars = fars %>%
+  mutate(weed = ifelse(drugid1 == 605, 1, 0))
+
+
+### Get state identifiers to attach to FARS
+state.id = read_csv("accident.CSV") %>%
+  select(STATE, STATENAME) %>%
+  group_by(STATENAME) %>%
+  slice(1) %>%
+  mutate(STATENAME = tolower(STATENAME)) %>%
+  rename(state = STATE)
+
+### Drunks and druggies calculation
+fars2 = fars %>%
+  select(state, month, crashid, numaccfats, vehdrdrive, drugs, race, weed) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME) %>%
+  summarise(drunks = sum(vehdrdrive, na.rm = TRUE),
+            druggies = sum(drugs, na.rm = TRUE),
+            potheads = sum(weed, na.rm = TRUE)) %>%
+  rename(state = STATENAME)
+
+### 
+fars3 = fars %>%
+  select(state, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, crashid) %>%
+  slice(1) %>%
+  ungroup() %>%
+  group_by(year, STATENAME) %>%
+  summarise(fatals = sum(numaccfats),
+            n_crashes = n()) %>%
+  rename(state = STATENAME)
+
+rm(fars)
+
+```
+
+
+```{r}
+
+df.sum.fars = df.sum %>%
+  left_join(fars2) %>%
+  left_join(fars3)
+
+```
+
+
+
+
+
+
+
