@@ -38,7 +38,7 @@ for (i in 1974:2020) {
   filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
   
   temp = readRDS(filename) %>%
-    select(fips_county_code, state, agency_name, year, month, starts_with("dui"))
+    select(fips_county_code, state, population, agency_name, year, month, starts_with("dui"))
   
   df = rbind(df, temp)
   
@@ -192,9 +192,94 @@ df.sum.fars = df.sum %>%
 
 ```
 
+```{r}
+
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+df2 = df.sum.fars %>%
+  filter(!state %in% nonstate)
+
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+
+rel.dates = df3$fyear
+
+df4 = df2 %>%
+  filter(fyear %in% rel.dates) %>%
+  mutate(timetotreat = ifelse(timetotreat < -6, 0, timetotreat)) %>%
+  mutate(timetotreat = ifelse(timetotreat > 6, 0, timetotreat))
+
+df4 = df4 %>%
+  left_join(state_populations) %>%
+  drop_na(population)
+
+```
 
 
+```{r}
+
+drunks.model = feols(drunks ~ i(timetotreat, treated, ref = 0) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = df4$population,
+                    data = df4)
+
+iplot(drunks.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total Fatal Alcohol Detected')
+
+```
 
 
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+fatal.model = feols(fatals ~ i(timetotreat, treated, ref = 0) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = df4$population,
+                    data = df4)
+
+iplot(fatal.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total Driving Fatalaties')
+
+```
+
+# Population and Effect Size
+
+
+```{r}
+
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(year, state, fips_county_code) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) /(sum(dui_tot_arrests)+1),
+            county_population = mean(population, na.rm = TRUE)) %>%
+  ungroup()
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  mutate(fyear = as.factor(year)) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(treated = replace_na(treated, 0))
+
+```
 
 
