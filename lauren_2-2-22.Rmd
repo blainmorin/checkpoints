@@ -359,6 +359,8 @@ iplot(dui.model,
 
 # Recreational Marijuana Legalization as Treatment
 
+* Using months for now because the arrest data ends at 2020, many of the treatment dates are also in 2020
+
 ```{r}
 
 treated_states = c("alaska",
@@ -367,6 +369,7 @@ treated_states = c("alaska",
                    "colorado",
                    "illinois",
                    "maine",
+                   "massachusetts",
                    "michigan",
                    "montana",
                    "nevada",
@@ -376,52 +379,125 @@ treated_states = c("alaska",
                    "vermont",
                    "washington")
 
-
-
 df.sum = df %>%
   mutate(monthyear = paste(month, year)) %>%
   mutate(d = my(monthyear)) %>%
-  group_by(year, state) %>%
+  group_by(d, state) %>%
   summarise(DUI_Total = sum(dui_tot_arrests),
             DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests),
-            DUI_p.Hispanic = sum(dui_tot_hispanic) / sum(dui_tot_arrests)) %>%
+            DUI_p.Hispanic = sum(dui_tot_hispanic) / sum(dui_tot_arrests))%>%
   ungroup()
+
 
 df.sum = df.sum %>%
   mutate(treatdate = ifelse(state == "alaska", "Feb 2015", NA)) %>%
   mutate(treatdate = ifelse(state == "arizona", "Nov 2020", treatdate)) %>%
-  mutate(treatdate = ifelse(state == "california", "Nov 2020", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "california", "Nov 2016", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "colorado", "Dec 2012", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "illinois", "Jan 2020", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "maine", "Jan 2017", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "massachusetts", "Dec 2016", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Dec 2018", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "montana", "Nov 2020", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "nevada", "Jan 2017", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "new jersey", "Nov 2020", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "July 2015", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "south dakota", "Nov 2020", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "vermont", "July 2018", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "washington", "Dec 2012", treatdate)) %>%
   mutate(treatdate = my(treatdate)) %>%
   mutate(treatyear = format(treatdate, format = "%Y"))
 
+
 df.sum = df.sum %>%
-  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  mutate(timetotreat = interval(treatdate, d) %/% months(1)) %>%
   mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
-  mutate(fyear = as.factor(year)) %>%
+  mutate(fd = as.factor(d)) %>%
   mutate(timetotreat = replace_na(timetotreat, 0)) %>%
   mutate(treated = replace_na(treated, 0))
 
-
-
-```
-
-```{r}
-
 nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+nocheckpoints = c("alaska",
+                  "iowa",
+                  "south carolina",
+                  "michigan",
+                  "minnesota",
+                  "oregon",
+                  "rhode island",
+                  "washington",
+                  "idaho",
+                  "texas",
+                  "wisconsin",
+                  "wyoming",
+                  "montana")
+
+df.sum = df.sum %>%
+  mutate(checkpoint_state = ifelse(state %in% nocheckpoints, 0, 1))
 
 df2 = df.sum %>%
   filter(!state %in% nonstate)
 
 df3 = df2 %>%
   filter(treated == 1) %>%
-  filter(timetotreat >= -6 & timetotreat <= 6)
+  filter(timetotreat >= -12 & timetotreat <= 12)
 
-rel.dates = df3$fyear
+rel.dates = df3$fd
 
 df4 = df2 %>%
-  filter(fyear %in% rel.dates) %>%
-  mutate(timetotreat = ifelse(timetotreat < -6, 0, timetotreat)) %>%
-  mutate(timetotreat = ifelse(timetotreat > 6, 0, timetotreat))
+  filter(fd %in% rel.dates) %>%
+  mutate(timetotreat = ifelse(timetotreat < -12, 0, timetotreat)) %>%
+  mutate(timetotreat = ifelse(timetotreat > 12, 0, timetotreat))
+
+
+
+
 
 ```
 
+## Outcome: Total DUI Arrests
+
+### Exploratory Graphic
+
+```{r, fig.width=12, fig.height=10}
+
+df5 = df2 %>%
+  filter(treated == 1) %>% 
+  filter(timetotreat >= -12 & timetotreat <= 12) %>%
+  drop_na()
+
+test = df5 %>%
+  ggplot(aes(x = timetotreat, y = DUI_Total)) +
+  geom_point(aes(color = state)) +
+  geom_line(aes(color = state)) +
+  facet_wrap(~checkpoint_state)+
+  theme_bw() +
+  theme(strip.background =element_rect(fill="black")) +
+  theme(strip.text = element_text(colour = 'white')) +
+  ylab("Total DUIs") +
+  xlab("Time to Treatment (0 = Recreational Marijuana Legal)") +
+  geom_vline(xintercept = 0, linetype="dashed")
+
+ggplotly(test)
+
+```
+
+### Event Study
+
+* The control group consists of states that did not legalize recreational marijuana AND states that did legalize but not within plus or minus 12 months of the law change.
+
+* Unweighted, need to update population file (currently ends at 2018)
+
+
+```{r, fig.height=5, fig.width=7}
+
+dui.model = feols(DUI_Total ~ i(timetotreat, treated, ref = 0) | ## Model
+                      state + fd, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    data = df4)
+
+iplot(dui.model, 
+      xlab = 'Time to treatment (Months)',
+      main = 'Event study: Total Dui Arrests')
+
+```
