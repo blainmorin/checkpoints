@@ -344,9 +344,8 @@ df3 = df2 %>%
 
 appendage = df3 %>% 
   filter(timetotreat == -5) %>%
-  mutate(dui_percent_5y_prior = DUI_Total / county_population) %>%
   mutate(fatal_crash_5y_prior = n_crashes) %>%
-  select(state, fips_county_code, dui_percent_5y_prior, n_crashes, DUI_Total)
+  select(state, fips_county_code, n_crashes, DUI_Total)
   
 
 df4 = df3 %>%
@@ -357,19 +356,11 @@ df4 = df3 %>%
   mutate(delta = (after - before) / after)
 
 
-temp = df3 %>%
-  select(state, fips_county_code, county_population) %>%
-  group_by(state, fips_county_code) %>%
-  summarise(population = mean(county_population, na.rm = TRUE))
-
 df5 = df4 %>%
-  left_join(temp)
-
-df6 = df5 %>%
   left_join(appendage) %>%
   left_join(population.appendage)
 
-df6 %>%
+df5 %>%
   ggplot(aes(y = delta, x = log(n_crashes))) +
   geom_point(alpha = .6) + 
   facet_wrap(~state) +
@@ -383,7 +374,7 @@ df6 %>%
 
 ```{r}
 
-df6 %>%
+df5 %>%
   ggplot(aes(y = delta, x = log(DUI_Total))) +
   geom_point(alpha = .6) + 
   facet_wrap(~state) +
@@ -399,7 +390,7 @@ df6 %>%
 
 ```{r}
 
-df6 %>%
+df5 %>%
   mutate(duipercent = DUI_Total / countypopulation) %>%
   ggplot(aes(y = delta, x = log(duipercent))) +
   geom_point(alpha = .6) + 
