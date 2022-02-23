@@ -16,6 +16,7 @@ library(ggridges)
 library(stargazer)
 library(data.table) 
 library(fixest) 
+library(kableExtra)
 library(haven)
 
 ```
@@ -266,18 +267,90 @@ df5 = df2 %>%
   filter(timetotreat >= -6 & timetotreat <= 6) 
 
 g = df5 %>%
-  ggplot(aes(x = timetotreat, y = DUI_Total)) +
+  ggplot(aes(x = timetotreat, y = log(DUI_Total + 1))) +
   geom_point(aes(color = state)) +
   geom_line(aes(color = state)) +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
   facet_wrap(~checkpoint_state) +
   theme_bw() +
   theme(strip.background =element_rect(fill="black")) +
   theme(strip.text = element_text(colour = 'white')) +
   theme(legend.position = "none") +
-  ylab("Total DUIs") +
+  ylab("log Total DUIs") +
   xlab("Time to Treatment (0 = Medical Marijuana Legal)") +
   geom_vline(xintercept = 0, linetype="dashed")
 
 ggplotly(g)
 
 ```
+
+## Outcome: Fatal Crashes
+
+### Exploratory Graphic
+
+```{r, fig.width=12, fig.height=10}
+
+df5 = df2 %>%
+  filter(treated == 1) %>% 
+  filter(timetotreat >= -6 & timetotreat <= 6) 
+
+g = df5 %>%
+  ggplot(aes(x = timetotreat, y = log(fatals + 1))) +
+  geom_point(aes(color = state)) +
+  geom_line(aes(color = state)) +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  facet_wrap(~checkpoint_state) +
+  theme_bw() +
+  theme(strip.background =element_rect(fill="black")) +
+  theme(strip.text = element_text(colour = 'white')) +
+  theme(legend.position = "none") +
+  ylab("log Total Fatal Crashes") +
+  xlab("Time to Treatment (0 = Medical Marijuana Legal)") +
+  geom_vline(xintercept = 0, linetype="dashed")
+
+ggplotly(g)
+
+```
+
+* Some states are cutoff because the current FARS data ends at 2016 (for example, Florida legalizes medical marijuana in 2017)
+
+
+# Data check tables
+
+* Starting at 1990 here, but can extend back to 1974 if needed
+
+```{r}
+
+table1 = df2 %>%
+  left_join(state_populations) %>%
+  mutate(DUI_percent = DUI_Total / population) %>%
+  mutate(Fatal_percent = fatals / population) %>%
+  group_by(state) %>%
+  summarise(Average_Year_DUI = mean(DUI_Total, na.rm = TRUE),
+            Average_DUI_Percent = mean(DUI_percent, na.rm = TRUE),
+            Average_Fatal_Crash = mean(fatals, na.rm = TRUE),
+            Average_Fatal_Percent = mean(Fatal_percent, na.rm = TRUE))
+
+table1 %>%
+  kable(format = "html", digits = 3) %>%
+  kable_styling(full_width = FALSE)
+  
+
+```
+
+## Graph DUI percent versus Fatal Crash percent
+
+```{r}
+
+table1 %>%
+  ggplot(aes(x = Average_DUI_Percent, y = Average_Fatal_Percent)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_bw() +
+  ylab("Average Fatal Crashes as Percent of State Population") +
+  xlab("Average DUIs as Percent of State Population")
+
+
+```
+
+* Seems to be an upward trend, as expected? 

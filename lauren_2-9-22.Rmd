@@ -1,12 +1,12 @@
 ---
-title: "Meeting"
+title: "Add Weights, Effect Across Counties"
 author: "Blain Morin"
-date: "2/8/2022"
+date: "2/9/2022"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 library(tidyverse)
 library(lubridate)
@@ -135,6 +135,7 @@ iplot(dui.model,
 
 ```
 
+* Upward trend
 
 ```{r, echo = TRUE}
 
@@ -227,9 +228,11 @@ drunks.model = feols(drunks ~ i(timetotreat, treated, ref = 0) | ## Model
 
 iplot(drunks.model, 
       xlab = 'Time to treatment (Years)',
-      main = 'Event study: Total Fatal Alcohol Detected')
+      main = 'Event study: Total Fatal Creashes with Alcohol Detected')
 
 ```
+
+* No effect
 
 
 ```{r, fig.height=5, fig.width=7, echo = TRUE}
@@ -246,9 +249,13 @@ iplot(fatal.model,
 
 ```
 
+* Upward trend
+
 # Population and Effect Size
 
-$$\Delta = \frac{\bar{DUI_{after}} - \bar{DUI_{before}}}{\bar{DUI_{before}}}$$
+$$\Delta = \frac{\bar{X_{after}} - \bar{X_{before}}}{\bar{X_{before}}}$$
+
+
 
 ```{r}
 
@@ -354,6 +361,9 @@ df5 %>%
 
 ```
 
+* Bit of upward trend in Texas, but negative or flat elsewhere
+
+
 ```{r}
 
 df2 = df.sum.fars %>%
@@ -391,6 +401,9 @@ df5 %>%
 
 ```
 
+* I do not see an obvious trend
+
+
 ```{r}
 
 df2 = df.sum.fars %>%
@@ -427,3 +440,5 @@ df5 %>%
   ggtitle("County Population Versus Delta n Fatal Crashes")
 
 ```
+
+* No obvious trend

@@ -68,7 +68,6 @@ df.sum = df.sum %>%
   mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
   mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
   mutate(fyear = as.factor(year)) %>%
-  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
   mutate(treated = replace_na(treated, 0))
 
 
@@ -202,11 +201,14 @@ df4 = df4 %>%
 
 ```{r, fig.height=5, fig.width=7, echo = TRUE}
 
-fatal.model = feols(fatals ~ i(timetotreat, treated, ref = 1) | ## Model
+fatal.model = feols(fatals ~ i(timetotreat, treated, ref = -1) | ## Model
                       state + fyear, ## Fixed Effects
                     cluster = ~state, ## Se Clustering
                     weights = df4$population,
                     data = df4)
+check = df4 %>%
+  filter(timetotreat == 0)
+
 
 iplot(fatal.model, 
       xlab = 'Time to treatment (Years)',
@@ -216,7 +218,7 @@ iplot(fatal.model,
 
 ```{r, fig.height=5, fig.width=7, echo = TRUE}
 
-crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = 1) | ## Model
+crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = -1) | ## Model
                       state + fyear, ## Fixed Effects
                     cluster = ~state, ## Se Clustering
                     weights = df4$population,
@@ -230,7 +232,7 @@ iplot(crashes.model,
 
 ```{r, fig.height=5, fig.width=7, echo = TRUE}
 
-drunks.model = feols(drunks ~ i(timetotreat, treated, ref = 1) | ## Model
+drunks.model = feols(drunks ~ i(timetotreat, treated, ref = -1) | ## Model
                       state + fyear, ## Fixed Effects
                     cluster = ~state, ## Se Clustering
                     weights = df4$population,

@@ -1,0 +1,354 @@
+---
+title: "Commented Code for Event Studies"
+author: "Blain Morin"
+date: "2/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+library(haven)
+library(kableExtra)
+library(readxl)
+
+```
+
+# Summary
+
+* This (somewhat lengthy) document shows the steps from the raw data to the event study. 
+
+## Read in and clean UCR arrest data and attach treatment dates
+
+* The treatment date is when the sobriety checkpoints "turned off" or were ruled unconstitutional 
+
+* Lauren, **we should double check these dates** 
+
+```{r}
+
+### Declare treated states
+treated_states = c("washington", "wisconsin", "rhode island", "texas", "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+### Initialize a dataframe
+df = data.frame()
+
+### The UCR data is broken into years
+### This for loop cycles through the declared years and
+### concatenates them (flattens to one dataframe)
+
+### 1980 to 2000 captures 6 years before first treatment
+### And 6 years after last treatment
+for (i in 1980:2000) {
+  
+  filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+  
+  ### Here the variables from UCR data are selected
+  temp = readRDS(filename) %>% 
+    select(fips_county_code, state, population, agency_name, year, month, starts_with("dui"))
+  
+  df = rbind(df, temp)
+  
+}
+
+### Here I group by year and state and
+### calculate the total DUI and percent Black DUI by state-year
+df.sum = df %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) / sum(dui_tot_arrests)) %>%
+  ungroup()
+
+
+### Here I attach the treatment date to the 
+### corresponding state
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  ### Although the month is declared above, we only use the treatyear
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+
+df.sum = df.sum %>%
+  ### Make the time to treat column
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  ### Make indicator for treated state
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  ### Make years discrete
+  mutate(fyear = as.factor(year)) 
+
+
+```
+
+As a check, here is what df.sum looks like for two treated states (Texas and Oregon) and one control state (Alabama):
+
+```{r, echo = FALSE}
+
+df.sum.example = df.sum %>%
+  filter(state %in% c("texas", "oregon", "alabama")) %>%
+  arrange(state)
+
+df.sum.example %>%
+  kbl(format = "html", caption = "Two Treated, One Control") %>%
+  kable_styling(full_width = FALSE)
+
+```
+
+## Read in and attach FARS data
+
+```{r}
+
+### Read in FARS data
+fars = read_dta("FARS19752016_clean.dta")
+
+### The FARS data only has a numeric state identifier
+### Here I use one of the original sets to attach state names
+state.id = read_csv("accident.CSV") %>%
+  select(STATE, STATENAME) %>%
+  group_by(STATENAME) %>%
+  slice(1) %>%
+  mutate(STATENAME = tolower(STATENAME)) %>%
+  rename(state = STATE)
+
+### Drunk driver calculation and drug detected, by state-year
+fars2 = fars %>%
+  ### These are the selected variables from FARS
+  select(state, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  ### Here I pull out the year from the crashid
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  ### This join attaches the state names
+  left_join(state.id) %>%
+  ### Groups by state and year and sum the drunk drivers and
+  ### drugs detected 
+  ### Missing data is dropped from the summation
+  group_by(year, STATENAME) %>%
+  summarise(drunk.drivers = sum(vehdrdrive, na.rm = TRUE),
+            drug.users = sum(drugs, na.rm = TRUE)) %>%
+  rename(state = STATENAME)
+
+### Here I calculate the number of fatal accidents and
+### The total number of fatalities
+fars3 = fars %>%
+  ### Select FARS variables
+  select(state, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  ### Extract year from the crash id
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  ### Attach state names
+  left_join(state.id) %>%
+  ### Here I restrict the data so that there is only
+  ### one row for each crash
+  ### This avoids double counting of the accident fatalities
+  ### The number of fatal accidents is thus the number of rows in each state-year
+  group_by(year, STATENAME, crashid) %>%
+  ### Takes one observation for each crash id
+  slice(1) %>%
+  ungroup() %>%
+  ### Regroup by state-year and sum
+  group_by(year, STATENAME) %>%
+  summarise(fatals = sum(numaccfats),
+            n_crashes = n()) %>%
+  rename(state = STATENAME)
+
+
+### Attach FARS dataframe to the arrest dataframe
+df.sum.fars = df.sum %>%
+  left_join(fars2) %>%
+  left_join(fars3)
+
+```
+
+
+## Read in and clean state populations for regression weights
+
+* Using the "laws and population.xlsx" file from the Onedrive folder
+  * *Assumed to be accurate, though not sure where they came from*
+
+
+```{r}
+
+### Read in the file
+state_populations = read_excel("laws and population.xlsx")
+
+### Select relevant columns
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+### Rename and clean some columns so that they will join to 
+### our UCR and FARS data
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+
+```
+
+
+## Original method
+
+In prior analyses, I sort of bound the data to only include observations where a treated state
+was in the time to treatment interval of +- 6 years:
+
+```{r}
+
+### These are some non-states that are dropped from the analysis
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+### This filters out the non-states
+df2 = df.sum.fars %>%
+  filter(!state %in% nonstate)
+
+### Here I grab only years where a treated state
+### is within +- 6 years
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+### The years are stored in the vector rel.dates
+rel.dates = df3$fyear
+
+
+### If a treated state is present but outside of the +- 6
+### interval I change it to zero which essentially puts it back into the control group
+df4 = df2 %>%
+  filter(fyear %in% rel.dates) %>%
+  mutate(timetotreat = ifelse(timetotreat < -6, 0, timetotreat)) %>%
+  mutate(timetotreat = ifelse(timetotreat > 6, 0, timetotreat))
+
+
+### This joins in the state populations
+df4 = df4 %>%
+  left_join(state_populations) %>%
+  drop_na(population)
+
+### Make control states time to treat = 0
+### this does not impact the interaction terms of interest
+
+df4 = df4 %>%
+  mutate(timetotreat = replace_na(df4$timetotreat, 0))
+
+```
+
+For example (using the same Texas, Oregon, and Alabama subset as above), here is the original method data frame:
+
+```{r, echo = FALSE}
+
+df4.example = df4 %>%
+  filter(state %in% c("texas", "oregon", "alabama")) %>%
+  arrange(state)
+
+df4.example %>%
+  kbl(format = "html", caption = "Original Method") %>%
+  kable_styling(full_width = FALSE)
+
+```
+
+This method results in this event study:
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = -1) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = df4$population,
+                    data = df4)
+
+iplot(crashes.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total Fatal Crashes')
+
+```
+
+
+## Accumulate into End Points
+
+In this version, the lags and leads greater than 6 are treated as -6 and 6, respectively.
+
+```{r}
+
+### These are some non-states that are dropped from the analysis
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+### This filters out the non-states
+df2 = df.sum.fars %>%
+  filter(!state %in% nonstate)
+
+### Here I grab only years where a treated state
+### is within +- 6 years
+df3 = df2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat >= -6 & timetotreat <= 6)
+### The years are stored in the vector rel.dates
+rel.dates = df3$fyear
+
+
+### If a treated state is present but outside of the +- 6
+### interval I change it to zero which essentially puts it back into the control group
+df4 = df2 %>%
+  filter(fyear %in% rel.dates) %>%
+  mutate(timetotreat = ifelse(timetotreat < -6, -6, timetotreat)) %>%
+  mutate(timetotreat = ifelse(timetotreat > 6, 6, timetotreat))
+
+
+### This joins in the state populations
+df4 = df4 %>%
+  left_join(state_populations) %>%
+  drop_na(population)
+
+### Make control states time to treat = 0
+### this does not impact the interaction terms of interest
+
+df4 = df4 %>%
+  mutate(timetotreat = replace_na(df4$timetotreat, 0))
+
+```
+
+Here is the example data frame:
+
+```{r, echo = FALSE}
+
+df4.example = df4 %>%
+  filter(state %in% c("texas", "oregon", "alabama")) %>%
+  arrange(state)
+
+df4.example %>%
+  kbl(format = "html", caption = "Original Method") %>%
+  kable_styling(full_width = FALSE)
+
+```
+
+And the resulting event study:
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = -1) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = df4$population,
+                    data = df4)
+
+iplot(crashes.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total Fatal Crashes')
+
+```
+
+
