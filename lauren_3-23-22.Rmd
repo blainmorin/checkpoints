@@ -1,0 +1,155 @@
+---
+title: "FARS County Data Process"
+author: "Blain Morin"
+date: "3/19/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+library(broom)
+library(haven)
+
+```
+
+
+# Summary
+
+* Here is the code that processes the FARS data for the sobriety checkpoint event study.
+  * The code starts with the **FARS19752016_clean.dta** located in the "statadata" folder.
+
+* *Note:* Prior to this, I was creating the event study data by joining the FARS data to the UCR data. Since the UCR data may not cover all counties, event study results may be different than what we looked at previously. 
+
+
+# County Level Data Make
+```{r}
+
+### Read in FARS data
+fars = read_dta("FARS19752016_clean.dta")
+
+
+### Get state identifiers to attach to FARS
+state.id = read_csv("accident.CSV") %>% # Read in csv
+  select(STATE, STATENAME) %>% # then select state id and state name columns
+  group_by(STATENAME) %>% # then group by state
+  slice(1) %>% # then grab one observation
+  mutate(STATENAME = tolower(STATENAME)) %>% # then make the state names lowercase
+  rename(state = STATE) # then rename the state column to lowercase too
+
+
+### Create dummy variable for MJ Detected
+fars = fars %>%
+  mutate(mj = ifelse(drugid1 == 605, 1, 0))
+
+
+### Drunk, drug, and marijuana drivers calculation
+fars2 = fars %>%
+  select(state, county, month, crashid, numaccfats, vehdrdrive, drugs, race, mj) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, county) %>%
+  summarise(drunk.drive = sum(vehdrdrive, na.rm = TRUE),
+            drug.drive = sum(drugs, na.rm = TRUE),
+            mj.drive = sum(mj, na.rm = TRUE)) %>%
+  rename(state = STATENAME, fips_county_code = county) %>%
+  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+
+
+### Fatalities and n Accidents Calculation
+fars3 = fars %>%
+  select(state, county, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, crashid) %>%
+  slice(1) %>%
+  ungroup() %>%
+  group_by(year, STATENAME, county) %>%
+  summarise(fatals = sum(numaccfats),
+            n_crashes = n()) %>%
+  rename(state = STATENAME, fips_county_code = county) %>%
+  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+
+
+### Join together and remove missing county observations
+county.fars = fars2 %>%
+  left_join(fars3) %>%
+  drop_na(fips_county_code)
+
+
+```
+
+# State Level Data Make
+
+```{r}
+
+### Create state level
+state.fars = county.fars %>% # take county FARS data
+  group_by(state, year) %>% # then group by state-year
+  summarise(drunk_drive = sum(drunk.drive), # then sum up the totals for each state-year
+            drug_drive = sum(drug.drive),
+            mj_drive = sum(mj.drive),
+            n_fatalities = sum(fatals),
+            n_crashes = sum(n_crashes))
+
+### Attach date sobriety checkpoints turn off
+state.fars = state.fars %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+
+### Declare treated states
+treated_states = c("washington", "wisconsin",
+                   "rhode island", "texas",
+                   "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+
+state.fars = state.fars %>%
+  ### Make the time to treat column
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  ### Make indicator for treated state
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  ### Make years discrete
+  mutate(fyear = as.factor(year)) 
+
+state.fars = state.fars %>%
+  mutate(timetotreat = replace_na(timetotreat, 0))
+
+state.fars.trim = state.fars %>%
+  filter(year %in% 1980:2000)
+
+
+crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = -1) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    data = state.fars.trim)
+
+iplot(crashes.model)
+  
+
+```
+
+
+
