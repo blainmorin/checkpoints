@@ -150,7 +150,7 @@ write.csv(state.fars, file = "state.fars.0s.csv") # CSV with 0 for time to treat
 state.fars.trim = state.fars %>%
   filter(year %in% 1980:2000)
 
-write.csv(state.fars, file = "state.fars.1980.2000.csv") # CSV trimmed to only 1980 - 2000
+write.csv(state.fars.trim, file = "state.fars.1980.2000.csv") # CSV trimmed to only 1980 - 2000
   
 
 ```

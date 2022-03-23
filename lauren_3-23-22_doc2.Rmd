@@ -1,0 +1,81 @@
+---
+title: "Two Way FE Estimators"
+author: "Blain Morin"
+date: "3/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(bacondecomp)
+library(readr)
+library(plotly)
+library(did)
+
+```
+
+
+# Summary
+
+
+
+# Bacon Decomp Plot
+
+In our analysis, the standard diff in diff estimator comes from a weighted average of differences between three main groups: sobriety checkpoint "turn-off" states versus control states, early turn-off states to late turn-off states, and late-turn off states to already turned-off states. The diff-in-diff estimator is very biased when high weights are assigned to the late-turn off states to already turned-off states comparison (or in other words: treated to already treated). Thus, the intuition behind the Bacon decomposition plot is to make the weights assigned to all these groups explicit. 
+
+Here is the decomposition for our fatal crash model:
+
+```{r}
+
+fars = read_csv("state.fars.1980.2000.csv")
+
+### Create a post treatment variable
+fars = fars %>%
+  mutate(post = ifelse(timetotreat > 0, 1, 0)) %>%
+  rename(treated_blain = treated)
+
+df_bacon = bacon(n_crashes ~ post,
+                 data = fars,
+                 id_var = "state",
+                 time_var = "year")
+
+
+ggplot(df_bacon) +
+  aes(x = weight, y = estimate, color = type) +
+  labs(x = "Weight", y = "Estimate", shape = "Type") +
+  geom_point(size = 2, alpha = .7) +
+  theme_bw()
+
+
+```
+
+We see that most weight for the diff in diff estimate for the average treatment effect is given to the treatment versus control group. Low weight is given the the problematic treated versus already treated comparisons. I think this is good and could be evidence for not needing to do much correction. In other words, the magnitude of the potential bias is very low.
+
+This result is driven by the relatively higher number of states in the control group. 
+
+# Callaway Sant'Anna Correction
+
+```{r}
+
+fars = fars %>%
+  mutate(gname = replace_na(fars$treatyear, 0)) %>%
+  mutate(gname = ifelse(gname == 1976, 0, gname)) %>%
+  mutate(id.numeric = as.numeric(as.factor(state)))
+
+cs.model = att_gt(
+  yname = "n_crashes",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  data = fars
+)
+
+dyn.cs.model = aggte(cs.model, type = "dynamic")
+ggdid(cs.model)
+ggdid(dyn.cs.model) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
