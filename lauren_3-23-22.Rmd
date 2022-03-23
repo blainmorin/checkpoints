@@ -1,13 +1,13 @@
 ---
 title: "FARS County Data Process"
 author: "Blain Morin"
-date: "3/19/2022"
+date: "3/23/2022"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 library(tidyverse)
 library(lubridate)
@@ -19,6 +19,7 @@ library(data.table)
 library(fixest) 
 library(broom)
 library(haven)
+library(readxl)
 
 ```
 
@@ -32,6 +33,7 @@ library(haven)
 
 
 # County Level Data Make
+
 ```{r}
 
 ### Read in FARS data
@@ -49,21 +51,23 @@ state.id = read_csv("accident.CSV") %>% # Read in csv
 
 ### Create dummy variable for MJ Detected
 fars = fars %>%
-  mutate(mj = ifelse(drugid1 == 605, 1, 0))
+  mutate(mj = ifelse(drugid1 == 605, 1, 0)) # 605 is MJ
 
 
 ### Drunk, drug, and marijuana drivers calculation
 fars2 = fars %>%
-  select(state, county, month, crashid, numaccfats, vehdrdrive, drugs, race, mj) %>%
-  mutate(year = substr(crashid, 1, 4)) %>%
-  mutate(year = as.numeric(year)) %>%
-  left_join(state.id) %>%
-  group_by(year, STATENAME, county) %>%
-  summarise(drunk.drive = sum(vehdrdrive, na.rm = TRUE),
+  select(state, county, month, crashid,
+         numaccfats, vehdrdrive, drugs, race, mj) %>% # select these columns
+  mutate(year = substr(crashid, 1, 4)) %>% # then create year from accident identifier
+  mutate(year = as.numeric(year)) %>% # then make year numeric
+  left_join(state.id) %>% # then attach state names
+  group_by(year, STATENAME, county) %>% # then group by year county and state
+  summarise(drunk.drive = sum(vehdrdrive, na.rm = TRUE), # calculate sums of these events
             drug.drive = sum(drugs, na.rm = TRUE),
             mj.drive = sum(mj, na.rm = TRUE)) %>%
-  rename(state = STATENAME, fips_county_code = county) %>%
-  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+  rename(state = STATENAME, fips_county_code = county) %>% # clean up column names
+  mutate(fips_county_code = str_pad(fips_county_code, 3,
+                                    side = "left", pad = "0")) # Add 0 to FIPS codes
 
 
 ### Fatalities and n Accidents Calculation
@@ -72,8 +76,8 @@ fars3 = fars %>%
   mutate(year = substr(crashid, 1, 4)) %>%
   mutate(year = as.numeric(year)) %>%
   left_join(state.id) %>%
-  group_by(year, STATENAME, crashid) %>%
-  slice(1) %>%
+  group_by(year, STATENAME, crashid) %>% # group by crash id
+  slice(1) %>% # and take one observation (avoids double counting)
   ungroup() %>%
   group_by(year, STATENAME, county) %>%
   summarise(fatals = sum(numaccfats),
@@ -83,6 +87,8 @@ fars3 = fars %>%
 
 
 ### Join together and remove missing county observations
+### I am removing the missing county observations, but maybe we 
+### Should add them to the state level
 county.fars = fars2 %>%
   left_join(fars3) %>%
   drop_na(fips_county_code)
@@ -134,20 +140,58 @@ state.fars = state.fars %>%
   ### Make years discrete
   mutate(fyear = as.factor(year)) 
 
+write.csv(state.fars, file = "state.fars.NAs.csv") # CSV with missing for time to treat for controls
+
 state.fars = state.fars %>%
   mutate(timetotreat = replace_na(timetotreat, 0))
+
+write.csv(state.fars, file = "state.fars.0s.csv") # CSV with 0 for time to treat for controls
 
 state.fars.trim = state.fars %>%
   filter(year %in% 1980:2000)
 
+write.csv(state.fars, file = "state.fars.1980.2000.csv") # CSV trimmed to only 1980 - 2000
+  
+
+```
+
+# Attach State Populations 
+
+```{r}
+
+### Read in the file
+state_populations = read_excel("laws and population.xlsx")
+
+### Select relevant columns
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+### Rename and clean some columns so that they will join to 
+### our UCR and FARS data
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+
+state.fars.trim = state.fars.trim %>%
+  left_join(state_populations)
+
+```
+
+# Simple non-corrected event study
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
 
 crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = -1) | ## Model
                       state + fyear, ## Fixed Effects
                     cluster = ~state, ## Se Clustering
+                    weights = state.fars.trim$population,
                     data = state.fars.trim)
 
-iplot(crashes.model)
-  
+iplot(crashes.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total Fatal Crashes, All Lags/Leads')
 
 ```
 
