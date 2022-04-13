@@ -1,0 +1,116 @@
+---
+title: "All Event FARS"
+author: "Blain Morin"
+date: "4/6/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(bacondecomp)
+library(readr)
+library(plotly)
+library(did)
+library(readxl)
+library(fixest)
+
+```
+
+
+
+
+```{r}
+
+fars = read_csv("state.fars.1980.2000.csv")
+
+### Create a post treatment variable
+fars = fars %>%
+  mutate(post = ifelse(timetotreat > 0, 1, 0)) %>%
+  rename(treated_blain = treated)
+
+# df_bacon = bacon(n_crashes ~ post,
+#                  data = fars,
+#                  id_var = "state",
+#                  time_var = "year")
+# 
+# 
+# ggplot(df_bacon) +
+#   aes(x = weight, y = estimate, color = type) +
+#   labs(x = "Weight", y = "Estimate", shape = "Type") +
+#   geom_point(size = 2, alpha = .7) +
+#   theme_bw()
+
+
+```
+
+We see that most weight for the diff in diff estimate for the average treatment effect is given to the treatment versus control group. Low weight is given the the problematic treated versus already treated comparisons. I think this is good and could be evidence for not needing to do much correction. In other words, the magnitude of the potential bias is very low.
+
+This result is driven by the relatively higher number of states in the control group. 
+
+# Callaway Sant'Anna Correction
+
+[More Information](https://cran.r-project.org/web/packages/did/vignettes/did-basics.html)
+
+```{r}
+
+fars = fars %>%
+  mutate(gname = replace_na(fars$treatyear, 0)) %>%
+  mutate(gname = ifelse(gname == 1976, 0, gname)) %>%
+  mutate(id.numeric = as.numeric(as.factor(state)))
+
+cs.model = att_gt(
+  yname = "n_crashes",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  data = fars
+)
+
+dyn.cs.model = aggte(cs.model, type = "dynamic")
+
+ggdid(dyn.cs.model) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Calloway Sant'Anna Unweighted Results")
+
+```
+
+```{r}
+
+### Read in the file
+state_populations = read_excel("laws and population.xlsx")
+
+### Select relevant columns
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+### Rename and clean some columns so that they will join to 
+### our UCR and FARS data
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+
+fars = fars %>%
+  left_join(state_populations)
+
+cs.model2 = att_gt(
+  yname = "n_crashes",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  weightsname = "population",
+  data = fars
+)
+
+dyn.cs.model2 = aggte(cs.model2, type = "dynamic")
+
+ggdid(dyn.cs.model2) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Fatal Crashes")
+
+
+```

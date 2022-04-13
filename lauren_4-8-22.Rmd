@@ -1,0 +1,375 @@
+---
+title: "County Level FARS"
+author: "Blain Morin"
+date: "4/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+library(broom)
+library(haven)
+library(readxl)
+library(bacondecomp)
+library(did)
+
+```
+
+# Notes:
+
+* Here I've repeated the FARS data analysis at the county level
+* The graphs look remarkably similar to the state level - I don't think it helped with the standard errors. I think this is because the number of "cohorts", or treatment groups, doesn't change.
+* Here, the panel is unbalanced - I believe this is because there may not be a row for counties that did not have a fatal accident. I can rebalance the panel, but it will take some additional time.
+* The graphs looked wonky when adding county population as a control, here I am just showing weighted estimates
+
+
+
+# Outcome: Number of Fatal Crashes
+
+```{r}
+
+### Read in FARS data
+fars = read_dta("FARS19752016_clean.dta")
+
+### Get state identifiers to attach to FARS
+state.id = read_csv("accident.CSV") %>% # Read in csv
+  select(STATE, STATENAME) %>% # then select state id and state name columns
+  group_by(STATENAME) %>% # then group by state
+  slice(1) %>% # then grab one observation
+  mutate(STATENAME = tolower(STATENAME)) %>% # then make the state names lowercase
+  rename(state = STATE) # then rename the state column to lowercase too
+
+### Create dummy variable for MJ Detected
+fars = fars %>%
+  mutate(mj = ifelse(drugid1 == 605, 1, 0)) # 605 is MJ
+
+
+fars2 = fars %>%
+  select(state, county, month, crashid,
+         numaccfats, vehdrdrive, drugs, race, mj) %>% # select these columns
+  mutate(year = substr(crashid, 1, 4)) %>% # then create year from accident identifier
+  mutate(year = as.numeric(year)) %>% # then make year numeric
+  left_join(state.id) %>% # then attach state names
+  group_by(year, STATENAME, county) %>% # then group by year county and state
+  summarise(drunk.drive = sum(vehdrdrive, na.rm = TRUE), # calculate sums of these events
+            drug.drive = sum(drugs, na.rm = TRUE),
+            mj.drive = sum(mj, na.rm = TRUE)) %>%
+  rename(state = STATENAME, fips_county_code = county) %>% # clean up column names
+  mutate(fips_county_code = str_pad(fips_county_code, 3,
+                                    side = "left", pad = "0")) # Add 0 to FIPS codes
+
+fars3 = fars %>%
+  select(state, county, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, crashid) %>% # group by crash id
+  slice(1) %>% # and take one observation (avoids double counting)
+  ungroup() %>%
+  group_by(year, STATENAME, county) %>%
+  summarise(fatals = sum(numaccfats),
+            n_crashes = n()) %>%
+  rename(state = STATENAME, fips_county_code = county) %>%
+  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+
+county.fars = fars2 %>%
+  left_join(fars3) %>%
+  drop_na(fips_county_code)
+
+county.fars = county.fars %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+### Declare treated states
+treated_states = c("washington", "wisconsin",
+                   "rhode island", "texas",
+                   "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+county.fars = county.fars %>%
+  ### Make the time to treat column
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  ### Make indicator for treated state
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  ### Make years discrete
+  mutate(fyear = as.factor(year)) 
+
+countypop = read_dta("countypopagerace_19692017.dta") %>%
+  group_by(year, stfips, cofips) %>%
+  summarise(co.population = sum(population, na.rm = TRUE)) %>%
+  rename(fips_county_code = cofips) %>%
+  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+
+fips.appendage = state.id %>%
+  rename(stfips = state) %>%
+  rename(state = STATENAME)
+
+county.fars = county.fars %>%
+  left_join(fips.appendage) %>%
+  left_join(countypop) %>%
+  mutate(stfips = str_pad(stfips, 2, side = "left", pad = "0")) %>%
+  mutate(fips = paste0(stfips, fips_county_code))
+
+county.fars = county.fars %>%
+  filter(year %in% 1980:2000) %>%
+  mutate(timetotreat = replace_na(timetotreat, 0)) %>%
+  mutate(post = ifelse(timetotreat > 0, 1, 0)) %>%
+  rename(treated_blain = treated) %>%
+  filter(fips_county_code != "000")
+
+county.fars = county.fars %>%
+  ungroup() %>%
+  mutate(gname = replace_na(as.numeric(county.fars$treatyear), 0)) %>%
+  mutate(gname = ifelse(gname == 1976, 0, gname)) %>%
+  mutate(id.numeric = as.numeric(as.factor(fips))) %>%
+  drop_na(co.population)
+  
+
+```
+
+## Calloway Santanna
+
+```{r}
+
+cs.model2 = att_gt(
+  yname = "n_crashes",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  weightsname = "co.population",
+  data = county.fars
+)
+
+dyn.cs.model2 = aggte(cs.model2, type = "dynamic")
+
+ggdid(dyn.cs.model2) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Calloway Sant'Anna Population Weighted Results")
+
+
+```
+
+* I am having trouble getting the function that calculates the ATT with the Calloway Santana method to work at the moment. Going to drop these for now, I think that the Sun and Abraham is working better since the figure more closely resembles the uncorrected version (we expect it to be similar from the bacon decomp plots we were looking at earlier). 
+
+
+## Sun and Abraham
+
+* Black is the simple two way fe
+* Red is the SA correction
+
+```{r}
+
+sa.county = county.fars %>%
+  mutate(gname2 = ifelse(gname == 0, 10000, gname))
+
+
+sa.weight.cluster = feols(n_crashes ~ sunab(cohort = gname2,
+                                      period = year) |
+                    fips + year,
+                    cluster = ~fips,
+                    weights = sa.county$co.population,
+                    data = sa.county)
+
+uncorrected = feols(n_crashes ~ i(timetotreat, treated_blain, ref = -1) | ## Model
+                    fips + fyear, ## Fixed Effects
+                    cluster = ~fips, ## Se Clustering
+                    weights = county.fars$co.population,
+                    data = county.fars)
+
+iplot(list(uncorrected, sa.weight.cluster))
+
+summary(sa.weight.cluster, agg = "ATT")
+
+```
+
+
+* Here the ATT is 13.7. On average, counties where checkpoints turned off experience 13.7 additional fatal accidents.
+
+I'm not sure about the proper comparison to put it in percentage terms.
+
+1. If compared to the average number of fatal crashes across all counties:
+
+```{r, echo = TRUE}
+
+mean_allcounties = mean(county.fars$n_crashes)
+
+mean_allcounties
+
+(13.7 + mean_allcounties) / mean_allcounties
+
+```
+
+* The average number of fatal crashes for counties in the panel is 13.2.
+* A 13.7 increase in fatal crashes is 204% more than average.
+
+2. If compared to average fatal crashes in just control counties:
+
+```{r, echo = TRUE}
+
+control_counties = county.fars %>%
+  filter(treated_blain == 1)
+
+mean_control = mean(control_counties$n_crashes)
+
+mean_control
+
+(13.7 + mean_control) / mean_control
+
+```
+
+* The average number of fatal crashes in control counties is 11.2
+* An increase of 13.7 crashes is 222% higher than the control average.
+
+
+I think both of these are wrong lol. 
+
+
+# Outcome: Fatalities
+
+```{r}
+
+
+sa.weight.cluster = feols(fatals ~ sunab(cohort = gname2,
+                                      period = year) |
+                    fips + year,
+                    cluster = ~fips,
+                    weights = sa.county$co.population,
+                    data = sa.county)
+
+uncorrected = feols(fatals ~ i(timetotreat, treated_blain, ref = -1) | ## Model
+                    fips + fyear, ## Fixed Effects
+                    cluster = ~fips, ## Se Clustering
+                    weights = county.fars$co.population,
+                    data = county.fars)
+
+iplot(list(uncorrected, sa.weight.cluster))
+
+summary(sa.weight.cluster, agg = "ATT")
+
+
+```
+
+# Outcome: Crashes with drunk driver involved
+
+```{r}
+
+
+sa.weight.cluster = feols(drunk.drive ~ sunab(cohort = gname2,
+                                      period = year) |
+                    fips + year,
+                    cluster = ~fips,
+                    weights = sa.county$co.population,
+                    data = sa.county)
+
+uncorrected = feols(drunk.drive ~ i(timetotreat, treated_blain, ref = -1) | ## Model
+                    fips + fyear, ## Fixed Effects
+                    cluster = ~fips, ## Se Clustering
+                    weights = county.fars$co.population,
+                    data = county.fars)
+
+iplot(list(uncorrected, sa.weight.cluster))
+
+summary(sa.weight.cluster, agg = "ATT")
+
+
+```
+
+# Outcome: County fatal accident rate
+
+```{r}
+
+county.fars = county.fars %>%
+  mutate(ncrashrate = n_crashes / co.population) %>%
+  mutate(fatalsrate = fatals / co.population) %>%
+  mutate(drunkrate = drunk.drive / co.population)
+
+sa.county = county.fars %>%
+  mutate(gname2 = ifelse(gname == 0, 10000, gname))
+
+
+
+sa.weight.cluster = feols(ncrashrate ~ sunab(cohort = gname2,
+                                      period = year) |
+                    fips + year,
+                    cluster = ~fips,
+                    weights = sa.county$co.population,
+                    data = sa.county)
+
+uncorrected = feols(ncrashrate ~ i(timetotreat, treated_blain, ref = -1) | ## Model
+                    fips + fyear, ## Fixed Effects
+                    cluster = ~fips, ## Se Clustering
+                    weights = county.fars$co.population,
+                    data = county.fars)
+
+iplot(list(uncorrected, sa.weight.cluster))
+
+summary(sa.weight.cluster, agg = "ATT")
+
+```
+
+# Outcome: County fatality rate
+
+```{r}
+
+sa.weight.cluster = feols(fatalsrate ~ sunab(cohort = gname2,
+                                      period = year) |
+                    fips + year,
+                    cluster = ~fips,
+                    weights = sa.county$co.population,
+                    data = sa.county)
+
+uncorrected = feols(fatalsrate ~ i(timetotreat, treated_blain, ref = -1) | ## Model
+                    fips + fyear, ## Fixed Effects
+                    cluster = ~fips, ## Se Clustering
+                    weights = county.fars$co.population,
+                    data = county.fars)
+
+iplot(list(uncorrected, sa.weight.cluster))
+
+summary(sa.weight.cluster, agg = "ATT")
+
+```
+
+# Outcome: Crashes with drunk driver involved rate
+
+```{r}
+
+
+sa.weight.cluster = feols(drunkrate ~ sunab(cohort = gname2,
+                                      period = year) |
+                    fips + year,
+                    cluster = ~fips,
+                    weights = sa.county$co.population,
+                    data = sa.county)
+
+uncorrected = feols(drunkrate ~ i(timetotreat, treated_blain, ref = -1) | ## Model
+                    fips + fyear, ## Fixed Effects
+                    cluster = ~fips, ## Se Clustering
+                    weights = county.fars$co.population,
+                    data = county.fars)
+
+iplot(list(uncorrected, sa.weight.cluster))
+
+summary(sa.weight.cluster, agg = "ATT")
+
+```
