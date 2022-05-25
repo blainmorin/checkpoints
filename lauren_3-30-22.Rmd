@@ -1,0 +1,344 @@
+---
+title: "Commented Code for Arrest Event Studies"
+subtitle: 'Drunk Driving, Total, and Drug Arrests'
+author: "Blain Morin"
+date: "3/30/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+* Note: No agencies cross state lines to the best of my knowledge.
+  * Exception: Federal law enforcement agencies
+  * There are no multi-state rows in the data
+  * Local, county, and state agencies only have jurisdiction in their state
+  * I'm not sure about tribal agencies
+
+# Data Process
+
+```{r}
+
+### Required R Packages (make package load reproducible)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+library(haven)
+library(kableExtra)
+library(readxl)
+library(gridExtra)
+library(did)
+library(bacondecomp)
+
+
+###################################
+### Uniform Crime Reporting (UCR)
+###################################
+
+### Initialize a dataframe
+df = data.frame()
+
+### The UCR data is broken into years
+### This for loop cycles through the declared years and
+### concatenates them (flattens to one dataframe)
+
+### 1980 to 2000 captures 6 years before first treatment
+### And 6 years after last treatment
+for (i in 1980:2000) {
+  
+  filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+  
+  ### Here the variables from UCR data are selected
+  temp = readRDS(filename) %>% 
+    select(fips_county_code,
+           state, population, 
+           agency_name, year,
+           month,
+           starts_with("dui"),
+           number_of_months_reported,
+           starts_with("poss_cannabis"),
+           starts_with("poss_drug_total")
+           )
+  
+  df = rbind(df, temp)
+  
+}
+
+
+### Here I group by year and state and
+### calculate the total DUI 
+df.sum = df %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            Poss_Cann_Total = sum(poss_cannabis_tot_arrests),
+            Poss_Drug_Total = sum(poss_drug_total_tot_arrests)) %>% # State-year total dui arrests
+  ungroup()
+
+
+### Here I attach the treatment date to the 
+### corresponding state
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  ### Although the month is declared above, we only use the treatyear
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+### Declare treated states
+treated_states = c("washington", "wisconsin", "rhode island", "texas", "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+df.sum = df.sum %>%
+  ### Make the time to treat column
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  ### Make indicator for treated state
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  ### Make years discrete
+  mutate(fyear = as.factor(year)) 
+
+
+### These are some non-states that are dropped from the analysis
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+### This filters out the non-states
+df2 = df.sum %>%
+  filter(!state %in% nonstate)
+
+### Attach state weights
+### Read in the file
+state_populations = read_excel("laws and population.xlsx")
+
+### Select relevant columns
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+### Rename and clean some columns so that they will join to 
+### our UCR and FARS data
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+df3 = df2 %>%
+  left_join(state_populations) %>%
+  drop_na(population) 
+
+df3 = df3 %>%
+  mutate(timetotreat = replace_na(df3$timetotreat, 0)) %>%
+  mutate(post = ifelse(timetotreat > 0, 1, 0)) %>%
+  rename(treated_alt = treated) # Change treated name to be friendly with 'did' package
+
+
+
+```
+
+# Outcome: Drunk Driving Arrests
+
+
+```{r}
+
+df_bacon = bacon(DUI_Total ~ post,
+                 data = df3,
+                 id_var = "state",
+                 time_var = "year")
+
+ggplot(df_bacon) +
+  aes(x = weight, y = estimate, color = type) +
+  labs(x = "Weight", y = "Estimate", shape = "Type") +
+  geom_point(size = 2, alpha = .7) +
+  theme_bw()
+
+```
+
+
+* We see that most weight for the diff in diff estimate for the average treatment effect is given to the treatment versus control group. Low weight is given the the problematic treated versus already treated comparisons. I think this is good and could be evidence for not needing to do much correction. In other words, the magnitude of the potential bias is very low. 
+
+* This result is driven by the relatively higher number of states in the control group. 
+  * The above conclusion will be the same for each analysis, so I will not repeat the decomp for each outcome.
+  
+## Callaway Sant'Anna Correction
+
+[More Information](https://cran.r-project.org/web/packages/did/vignettes/did-basics.html)
+
+```{r}
+
+df3 = df3 %>%
+  mutate(gname = replace_na(as.numeric(df3$treatyear), 0)) %>%
+  mutate(id.numeric = as.numeric(as.factor(state)))
+
+cs.model = att_gt(
+  yname = "DUI_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  weightsname = "population",
+  data = df3
+)
+
+dyn.cs.model = aggte(cs.model, type = "dynamic")
+
+ggdid(dyn.cs.model) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drunk Drive Arrests (All Agencies)")
+
+
+```
+
+## Sun and Abraham (SA)
+
+* Black is no correction, red is SA
+
+[More information](https://causalinf.substack.com/p/waiting-for-event-studies-a-play?s=r)
+
+```{r}
+
+sa.df3 = df3 %>%
+  mutate(gname = ifelse(gname == 0, 1000, gname)) %>%
+  mutate(treatyear = replace_na(as.numeric(treatyear), 1000))
+
+test = feols(DUI_Total ~ i(timetotreat, treated_alt, ref = -1) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = sa.df3$population,
+                    data = sa.df3)
+
+sa.weight.cluster = feols(DUI_Total ~ sunab(cohort = treatyear,
+                                      period = year) |
+                      state + year,
+                  cluster = ~state,
+                    weights = sa.df3$population,
+                    data = sa.df3)
+
+iplot(list(test, sa.weight.cluster))
+
+
+```
+
+* Doesn't quite align with the Calloway and Sant'Anna Figure
+
+# Outcome: Cannabis Possession
+
+## CS Correction
+
+```{r}
+
+df3 = df3 %>%
+  mutate(gname = replace_na(as.numeric(df3$treatyear), 0)) %>%
+  mutate(id.numeric = as.numeric(as.factor(state)))
+
+cs.model = att_gt(
+  yname = "Poss_Cann_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  weightsname = "population",
+  data = df3
+)
+
+dyn.cs.model = aggte(cs.model, type = "dynamic")
+
+ggdid(dyn.cs.model) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Cannabis Possession (All Agencies)")
+
+```
+
+* Not significant but evidence for large effect size
+
+## SA
+
+```{r}
+
+sa.df3 = df3 %>%
+  mutate(gname = ifelse(gname == 0, 1000, gname)) %>%
+  mutate(treatyear = replace_na(as.numeric(treatyear), 1000))
+
+test = feols(Poss_Cann_Total ~ i(timetotreat, treated_alt, ref = -1) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = sa.df3$population,
+                    data = sa.df3)
+
+sa.weight.cluster = feols(Poss_Cann_Total ~ sunab(cohort = treatyear,
+                                      period = year) |
+                      state + year,
+                  cluster = ~state,
+                    weights = sa.df3$population,
+                    data = sa.df3)
+
+iplot(list(test, sa.weight.cluster))
+
+
+```
+
+# Outcome: All Drugs
+
+## CS Correction
+
+```{r}
+
+df3 = df3 %>%
+  mutate(gname = replace_na(as.numeric(df3$treatyear), 0)) %>%
+  mutate(id.numeric = as.numeric(as.factor(state)))
+
+cs.model = att_gt(
+  yname = "Poss_Drug_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  weightsname = "population",
+  data = df3
+)
+
+dyn.cs.model = aggte(cs.model, type = "dynamic")
+
+ggdid(dyn.cs.model) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drug Possession (All Agencies)")
+
+```
+
+* Not significant but evidence for large effect size
+
+## SA
+
+```{r}
+
+sa.df3 = df3 %>%
+  mutate(gname = ifelse(gname == 0, 1000, gname)) %>%
+  mutate(treatyear = replace_na(as.numeric(treatyear), 1000))
+
+test = feols(Poss_Drug_Total ~ i(timetotreat, treated_alt, ref = -1) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = sa.df3$population,
+                    data = sa.df3)
+
+sa.weight.cluster = feols(Poss_Drug_Total ~ sunab(cohort = treatyear,
+                                      period = year) |
+                      state + year,
+                  cluster = ~state,
+                    weights = sa.df3$population,
+                    data = sa.df3)
+
+iplot(list(test, sa.weight.cluster))
+
+
+```

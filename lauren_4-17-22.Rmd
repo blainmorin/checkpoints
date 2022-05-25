@@ -1,9 +1,17 @@
 ---
-title: "Untitled"
+title: "Agency Level, Proportion Black DUI Arrests"
 author: "Blain Morin"
-date: "4/13/2022"
+date: "4/17/2022"
 output: html_document
 ---
+
+* Using UCR data, proportion black DUI arrests = Black DUI Arrests / Total DUI arrests for either the state or the agency
+
+* State level seems like it's working better
+
+* Don't see a significant trend
+
+* Here, the weights are by state (agency level populations are not reliable IMO)
 
 ```{r setup, include=FALSE}
 
@@ -24,10 +32,7 @@ library(readxl)
 
 ```
 
-# Summary
-
-* Here I use the UCR data at the agency level to make event studies for DUI arrests
-* I also compare different estimates for the ATT
+# Agency Level
 
 ```{r}
 ### Declare treated states
@@ -72,14 +77,17 @@ for (i in 1980:2000) {
 
 ```
 
+# State Level
+
 ```{r}
 
 ### Here I group by year, state, and agency and
 ### calculate the total DUI
 df.sum = df %>%
-  group_by(year, state, agency_name) %>%
+  group_by(year, state) %>%
   summarise(DUI_Total = sum(dui_tot_arrests),
             DUI_Total_Black = sum(dui_tot_black),
+            Prop_Black_DUI = DUI_Total_Black / DUI_Total,
 
             Poss_Cann_Total = sum(poss_cannabis_tot_arrests),
             Poss_Cann_Total_Black = sum(poss_cannabis_tot_black),
@@ -146,20 +154,17 @@ df3 = df3 %>%
 
 df3 = df3 %>%
   mutate(gname = replace_na(as.numeric(df3$treatyear), 0)) %>%
-  mutate(id.numeric = as.numeric(as.factor(paste0(state,agency_name))))
+  mutate(id.numeric = as.numeric(as.factor(state))) %>%
+  filter(DUI_Total > 0)
 
 ```
 
-# Outcome: DUI Arrests
-
-## Calloway and Santanna Method
-
-* Model Code:
+## Calloway and Santanna
 
 ```{r, echo = TRUE}
 
 cs.model = att_gt(
-  yname = "DUI_Total",
+  yname = "Prop_Black_DUI",
   tname = "year",
   idname = "id.numeric",
   gname = "gname",
@@ -170,11 +175,9 @@ cs.model = att_gt(
 
 ```
 
-### Event Study
-
 ```{r}
 
-cs.dui = aggte(cs.model, type = "dynamic")
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
 
 ggdid(cs.dui) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
@@ -183,72 +186,18 @@ ggdid(cs.dui) +
 
 ```
 
-* "Dynamic" ATT:
-
-```{r}
-
-summary(cs.dui)
-
-```
 
 
-
-### Cohort Specific Effects
-
-```{r}
-
-cs.dui2 = aggte(cs.model, type = "group")
-
-ggdid(cs.dui2) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  ggtitle("DUI Arrests")
-
-
-```
-
-* "Group" ATT:
-
-```{r}
-
-summary(cs.dui2)
-
-```
-
-
-* Model Code (unweighted):
-
-```{r, echo = TRUE}
-
-cs.model = att_gt(
-  yname = "DUI_Total",
-  tname = "year",
-  idname = "id.numeric",
-  gname = "gname",
-  allow_unbalanced_panel = TRUE,
-  data = df3
-)
-
-```
-
-### Event Study
-
-```{r}
-
-cs.dui = aggte(cs.model, type = "dynamic")
-
-ggdid(cs.dui) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-  ggtitle("DUI Arrests")
-
-
-```
 
 ## Sun and Abraham Method
+
+* Black is uncorrected, Red is corrected
 
 ```{r}
 
 sa.agency = df3 %>%
-  mutate(gname2 = ifelse(gname == 0, 10000, gname))
+  mutate(gname2 = ifelse(gname == 0, 10000, gname)) %>%
+  filter(DUI_Total > 0)
 
 ```
 
@@ -256,46 +205,23 @@ sa.agency = df3 %>%
 
 ```{r}
 
-sa.weight.cluster = feols(DUI_Total ~ sunab(cohort = gname2,
+sa.weight.cluster = feols(Prop_Black_DUI ~ sunab(cohort = gname2,
                                       period = year) |
                     as.factor(id.numeric) + fyear,
                     cluster = ~state,
                     weights = sa.agency$population,
                     data = sa.agency)
 
-sa.weight.cluster2 = feols(DUI_Total ~ sunab(cohort = gname2,
-                                      period = year) |
-                    as.factor(id.numeric) + fyear,
-                    cluster = ~as.factor(id.numeric),
-                    weights = sa.agency$population,
-                    data = sa.agency)
 
-uncorrected = feols(DUI_Total ~ i(timetotreat, treated_alt, ref = -1) | ## Model
+uncorrected = feols(Prop_Black_DUI ~ i(timetotreat, treated_alt, ref = -1) | ## Model
                     as.factor(id.numeric) + fyear, ## Fixed Effects
                     cluster = ~state, ## Se Clustering
                     weights = sa.agency$population,
                     data = sa.agency)
 
-uncorrected2 = feols(DUI_Total ~ i(timetotreat, treated_alt, ref = -1) | ## Model
-                    as.factor(id.numeric) + fyear, ## Fixed Effects
-                    cluster = ~as.factor(id.numeric), ## Se Clustering
-                    weights = sa.agency$population,
-                    data = sa.agency)
+
 
 ```
-
-### Cluster by state
-
-
-```{r}
-
-rm(df)
-
-```
-
-
-
-
 
 ```{r}
 
@@ -305,26 +231,157 @@ iplot(list(uncorrected, sa.weight.cluster))
 
 ```
 
+# Agency Level (little wonky looking)
 
-```{r, echo = TRUE}
+```{r}
 
-summary(sa.weight.cluster, agg = "ATT")
+### Here I group by year, state, and agency and
+### calculate the total DUI
+df.sum = df %>%
+  group_by(year, state, agency_name) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_Total_Black = sum(dui_tot_black),
+            Prop_Black_DUI = DUI_Total_Black / DUI_Total,
+
+            Poss_Cann_Total = sum(poss_cannabis_tot_arrests),
+            Poss_Cann_Total_Black = sum(poss_cannabis_tot_black),
+
+            Poss_Drug_Total = sum(poss_drug_total_tot_arrests),
+            Poss_Drug_Total_Black = sum(poss_drug_total_tot_black),
+            ) %>%
+  ungroup()
+
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  ### Although the month is declared above, we only use the treatyear
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  ### Make the time to treat column
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  ### Make indicator for treated state
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  ### Make years discrete
+  mutate(fyear = as.factor(year)) 
+
+
+### These are some non-states that are dropped from the analysis
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+### This filters out the non-states
+df2 = df.sum %>%
+  filter(!state %in% nonstate)
+
+### Attach state weights
+### Read in the file
+state_populations = read_excel("laws and population.xlsx")
+
+### Select relevant columns
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+### Rename and clean some columns so that they will join to 
+### our UCR and FARS data
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+df3 = df2 %>%
+  left_join(state_populations) %>%
+  drop_na(population) 
+
+df3 = df3 %>%
+  mutate(timetotreat = replace_na(df3$timetotreat, 0)) %>%
+  mutate(post = ifelse(timetotreat > 0, 1, 0)) %>%
+  rename(treated_alt = treated)
+
+df3 = df3 %>%
+  mutate(gname = replace_na(as.numeric(df3$treatyear), 0)) %>%
+  mutate(id.numeric = as.numeric(as.factor(paste0(state,agency_name)))) %>%
+  filter(DUI_Total > 0)
 
 ```
 
-# Cluster by agency
+```{r, echo = FALSE}
+
+cs.model = att_gt(
+  yname = "Prop_Black_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df3
+)
+
+```
+
+## Calloway and Santanna
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("DUI Arrests")
+
+
+```
+
+
+
+
+## Sun and Abraham Method
+
+* Black is uncorrected, Red is corrected
+
+```{r}
+
+sa.agency = df3 %>%
+  mutate(gname2 = ifelse(gname == 0, 10000, gname)) %>%
+  filter(DUI_Total > 0)
+
+```
+
+* Model codes:
+
+```{r}
+
+sa.weight.cluster = feols(Prop_Black_DUI ~ sunab(cohort = gname2,
+                                      period = year) |
+                    as.factor(id.numeric) + fyear,
+                    cluster = ~state,
+                    weights = sa.agency$population,
+                    data = sa.agency)
+
+
+uncorrected = feols(Prop_Black_DUI ~ i(timetotreat, treated_alt, ref = -1) | ## Model
+                    as.factor(id.numeric) + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = sa.agency$population,
+                    data = sa.agency)
+
+
+
+```
 
 ```{r}
 
 
-iplot(list(uncorrected2, sa.weight.cluster2))
+iplot(list(uncorrected, sa.weight.cluster))
 
 
 ```
 
-
-```{r, echo = TRUE}
-
-summary(sa.weight.cluster2, agg = "ATT")
-
-```

@@ -273,7 +273,7 @@ crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = -1) | ## Model
 
 iplot(crashes.model, 
       xlab = 'Time to treatment (Years)',
-      main = 'Event study: Total Fatal Crashes')
+      main = 'Event study: Total Fatal Crashes, Original Method')
 
 ```
 
@@ -281,6 +281,8 @@ iplot(crashes.model,
 ## Accumulate into End Points
 
 In this version, the lags and leads greater than 6 are treated as -6 and 6, respectively.
+
+This looks more like the data used in the STATA manual for eventdd.
 
 ```{r}
 
@@ -291,21 +293,94 @@ nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin i
 df2 = df.sum.fars %>%
   filter(!state %in% nonstate)
 
-### Here I grab only years where a treated state
-### is within +- 6 years
-df3 = df2 %>%
-  filter(treated == 1) %>%
-  filter(timetotreat >= -6 & timetotreat <= 6)
-### The years are stored in the vector rel.dates
-rel.dates = df3$fyear
+# ### Here I grab only years where a treated state
+# ### is within +- 6 years
+# df3 = df2 %>%
+#   filter(treated == 1) %>%
+#   filter(timetotreat >= -6 & timetotreat <= 6)
+# ### The years are stored in the vector rel.dates
+# rel.dates = df3$fyear
 
 
 ### If a treated state is present but outside of the +- 6
 ### interval I change it to zero which essentially puts it back into the control group
 df4 = df2 %>%
-  filter(fyear %in% rel.dates) %>%
+  #filter(fyear %in% rel.dates) %>%
   mutate(timetotreat = ifelse(timetotreat < -6, -6, timetotreat)) %>%
   mutate(timetotreat = ifelse(timetotreat > 6, 6, timetotreat))
+
+
+### This joins in the state populations
+df4 = df4 %>%
+  left_join(state_populations) %>%
+  drop_na(population)
+
+### Make control states time to treat = 0
+### this does not impact the interaction terms of interest
+
+df4 = df4 %>%
+  mutate(timetotreat = replace_na(df4$timetotreat, 0))
+
+```
+
+Here is the example data frame:
+
+```{r, echo = FALSE}
+
+df4.example = df4 %>%
+  filter(state %in% c("texas", "oregon", "alabama")) %>%
+  arrange(state)
+
+df4.example %>%
+  kbl(format = "html", caption = "Original Method") %>%
+  kable_styling(full_width = FALSE)
+
+```
+
+And the resulting event study:
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+crashes.model = feols(DUI_Total ~ i(timetotreat, treated, ref = -1) + population | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = df4$population,
+                    data = df4)
+
+iplot(crashes.model, 
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total Fatal Crashes, Accumulate in Endpoints')
+
+```
+
+## All lags and leads included
+
+This version does no binning or capping of the lags and leads (although it is sort of done by the year selection... not sure if we want to run it all the way back to the start of the arrest / crash data anyway). 
+
+```{r}
+
+### These are some non-states that are dropped from the analysis
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+### This filters out the non-states
+df2 = df.sum.fars %>%
+  filter(!state %in% nonstate)
+
+# ### Here I grab only years where a treated state
+# ### is within +- 6 years
+# df3 = df2 %>%
+#   filter(treated == 1) %>%
+#   filter(timetotreat >= -6 & timetotreat <= 6)
+# ### The years are stored in the vector rel.dates
+# rel.dates = df3$fyear
+
+
+### If a treated state is present but outside of the +- 6
+### interval I change it to zero which essentially puts it back into the control group
+df4 = df2 #%>%
+  #filter(fyear %in% rel.dates) %>%
+  #mutate(timetotreat = ifelse(timetotreat < -6, -6, timetotreat)) %>%
+  #mutate(timetotreat = ifelse(timetotreat > 6, 6, timetotreat))
 
 
 ### This joins in the state populations
@@ -347,8 +422,38 @@ crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = -1) | ## Model
 
 iplot(crashes.model, 
       xlab = 'Time to treatment (Years)',
-      main = 'Event study: Total Fatal Crashes')
+      main = 'Event study: Total Fatal Crashes, All Lags/Leads')
 
 ```
+
+
+Here I add [Sun and Abraham](https://www.sciencedirect.com/science/article/pii/S030440762030378X) corrections for heterogeneous treatment effects. 
+
+```{r, fig.height=5, fig.width=7, echo = TRUE}
+
+df4 = df4 %>%
+  mutate(treatyear = replace_na(treatyear, 1000))
+
+
+
+crashes.model.sun = feols(n_crashes ~ sunab(treatyear, year) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    weights = df4$population,
+                    data = df4)
+
+iplot(list(crashes.model, crashes.model.sun),
+      sep = .5,
+      ref.line = -1,
+      xlab = 'Time to treatment (Years)',
+      main = 'Event study: Total Fatal Crashes, All Lags/Leads')
+
+
+```
+
+
+
+
+
 
 

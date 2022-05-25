@@ -1,0 +1,206 @@
+---
+title: "DUI County Level"
+author: "Blain Morin"
+date: "3/1/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+library(broom)
+library(haven)
+
+```
+
+```{r}
+### Declare treated states
+treated_states = c("washington", "wisconsin", "rhode island", "texas", "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+### Initialize a dataframe
+df = data.frame()
+
+### The UCR data is broken into years
+### This for loop cycles through the declared years and
+### concatenates them (flattens to one dataframe)
+
+### 1980 to 2000 captures 6 years before first treatment
+### And 6 years after last treatment
+for (i in 1980:2000) {
+  
+  filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+  
+  ### Here the variables from UCR data are selected
+  temp = readRDS(filename) %>% 
+    select(fips_county_code, state, population, agency_name, year, month, starts_with("dui"))
+  
+  df = rbind(df, temp)
+  
+}
+
+### Here I group by year and county and
+### calculate the total DUI and percent Black DUI by county-year
+df.sum = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  group_by(year, state, fips_county_code) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_p.Black = sum(dui_tot_black) /(sum(dui_tot_arrests)+1)) %>%
+  ungroup()
+
+population.appendage = df %>%
+  mutate(monthyear = paste(month, year)) %>%
+  mutate(d = my(monthyear)) %>%
+  filter(population != 0) %>%
+  group_by(year, state, fips_county_code, agency_name) %>% 
+  slice(1) %>%
+  ungroup() %>%
+  group_by(year, state, fips_county_code) %>%
+  summarize(county_population = sum(population)) %>%
+  ungroup() %>%
+  select(fips_county_code, state, year, county_population) 
+
+df.sum = df.sum %>%
+  left_join(population.appendage) %>%
+  drop_na(fips_county_code)
+
+df.sum = df.sum %>%
+  mutate(county_dui_rate = DUI_Total / county_population)
+
+dui.appendage = df.sum %>%
+  group_by(state, year) %>%
+  summarise(state_dui_rate = sum(DUI_Total) / sum(county_population))
+
+df.sum = df.sum %>%
+  left_join(dui.appendage) %>%
+  mutate(high_dui_county = ifelse(county_dui_rate > state_dui_rate, 1, 0))
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  ### Make the time to treat column
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  ### Make indicator for treated state
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  ### Make years discrete
+  mutate(fyear = as.factor(year)) 
+
+
+df.sum = df.sum %>%
+  mutate(timetotreat = replace_na(timetotreat, 0))
+
+### Read in FARS data
+fars = read_dta("FARS19752016_clean.dta")
+
+fars = fars %>%
+  mutate(weed = ifelse(drugid1 == 605, 1, 0))
+
+
+### Get state identifiers to attach to FARS
+state.id = read_csv("accident.CSV") %>%
+  select(STATE, STATENAME) %>%
+  group_by(STATENAME) %>%
+  slice(1) %>%
+  mutate(STATENAME = tolower(STATENAME)) %>%
+  rename(state = STATE)
+
+fars2 = fars %>%
+  select(state, county, month, crashid, numaccfats, vehdrdrive, drugs, race, weed) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, county) %>%
+  summarise(drunks = sum(vehdrdrive, na.rm = TRUE),
+            druggies = sum(drugs, na.rm = TRUE),
+            potheads = sum(weed, na.rm = TRUE)) %>%
+  rename(state = STATENAME, fips_county_code = county) %>%
+  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+
+### Fatal and Accidents Calculation
+fars3 = fars %>%
+  select(state, county, month, crashid, numaccfats, vehdrdrive, drugs, race) %>%
+  mutate(year = substr(crashid, 1, 4)) %>%
+  mutate(year = as.numeric(year)) %>%
+  left_join(state.id) %>%
+  group_by(year, STATENAME, crashid) %>%
+  slice(1) %>%
+  ungroup() %>%
+  group_by(year, STATENAME, county) %>%
+  summarise(fatals = sum(numaccfats),
+            n_crashes = n()) %>%
+  rename(state = STATENAME, fips_county_code = county) %>%
+  mutate(fips_county_code = str_pad(fips_county_code, 3, side = "left", pad = "0"))
+
+
+
+df.sum.fars = df.sum %>%
+  left_join(fars2) %>%
+  left_join(fars3)
+
+
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+df2 = df.sum.fars %>%
+  filter(!state %in% nonstate)
+
+
+```
+
+```{r}
+
+df2 = df2 %>%
+  mutate(ftimetotreat = as.factor(timetotreat)) %>%
+  mutate(fhigh_dui_county = as.factor(high_dui_county))
+
+
+check = lm(DUI_Total ~ ftimetotreat*treated*fhigh_dui_county + fyear + state, data = df2)
+
+crashes.model = feols(n_crashes ~ i(timetotreat, treated, ref = -1) | ## Model
+                      state + fyear, ## Fixed Effects
+                    cluster = ~state, ## Se Clustering
+                    data = df2)
+
+iplot(crashes.model)
+
+
+test = tidy(check, conf.int = T)
+
+not.high = test[72:100,]
+high = test[101:129,]
+
+level.order = test$term[72:100]
+
+level.order2 = test$term[101:129]
+
+not.high%>%
+  ggplot(aes(x = factor(term, level = level.order), y = estimate)) +
+  geom_point() +
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high)) +
+  theme(axis.text.x=element_text(angle = 90, hjust = 0))
+
+```
+
+
+
