@@ -89,14 +89,28 @@ df = fread("ucr1980_2000.csv")
 df.sum = df %>%
   group_by(year, state) %>%
   summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_Total_White = sum(dui_tot_white),
             DUI_Total_Black = sum(dui_tot_black),
             Prop_Arrests_Black_DUI = DUI_Total_Black / DUI_Total,
+            Prop_Arrests_White_DUI = DUI_Total_White / DUI_Total,
+            Prop_Arrests_Other_DUI = (DUI_Total - DUI_Total_White - DUI_Total_Black) / DUI_Total,
 
             Poss_Cann_Total = sum(poss_cannabis_tot_arrests),
+            Poss_Cann_White = sum(poss_cannabis_tot_white),
             Poss_Cann_Total_Black = sum(poss_cannabis_tot_black),
 
             Poss_Drug_Total = sum(poss_drug_total_tot_arrests),
             Poss_Drug_Total_Black = sum(poss_drug_total_tot_black),
+            
+            Total_Drug_Total = sum(total_drug_tot_arrests),
+            Total_Drug_White = sum(total_drug_tot_white),
+            Total_Drug_Black = sum(total_drug_tot_black),
+            
+            Drunkenness_Total = sum(drunkenness_tot_arrests),
+            Drunkenness_White = sum(drunkenness_tot_white),
+            Drunkenness_Black = sum(drunkenness_tot_black)
+            
+            
             ) %>%
   ungroup()
 
@@ -188,6 +202,2266 @@ statepops = statepops %>%
   rename(other_pop = "3")
 
 df4 = df3 %>%
-  left_join(statepops)
+  left_join(statepops) %>%
+  mutate(population_nom = population * 1000) %>%
+  mutate(dui_rate = DUI_Total / population_nom) %>%
+  mutate(white_dui_rate = DUI_Total_White / white_pop) %>%
+  mutate(black_dui_rate = DUI_Total_Black / black_pop) %>%
+  mutate(Total_Other_DUI = DUI_Total - DUI_Total_White - DUI_Total_Black) %>%
+  mutate(other_dui_rate = Total_Other_DUI / other_pop) %>%
+  mutate(total_drug_rate = Total_Drug_Total / population_nom) %>%
+  mutate(white_drug_rate = Total_Drug_White / white_pop) %>%
+  mutate(black_drug_rate = Total_Drug_Black / black_pop) %>%
+  mutate(Total_Other_Drug = Total_Drug_Total - Total_Drug_White - Total_Drug_Black) %>%
+  mutate(other_drug_rate = Total_Other_Drug / other_pop) %>%
+  mutate(Total_Poss_Cann_Rate = Poss_Cann_Total / population_nom) %>%
+  mutate(white_cann_rate = Poss_Cann_White / white_pop) %>%
+  mutate(black_cann_rate = Poss_Cann_Total_Black / black_pop) %>%
+  mutate(Other_Poss_Cann = Poss_Cann_Total - Poss_Cann_White - Poss_Cann_Total_Black) %>%
+  mutate(other_cann_rate = Other_Poss_Cann / other_pop) %>%
+  mutate(drunkenness_rate = Drunkenness_Total / population_nom) %>%
+  mutate(white_drunkenness_rate = Drunkenness_White / white_pop) %>%
+  mutate(black_drunkenness_rate = Drunkenness_Black / black_pop) %>%
+  mutate(Other_Drunkenness = Drunkenness_Total - Drunkenness_White - Drunkenness_Black) %>%
+  mutate(other_drunkenness_rate = Other_Drunkenness / other_pop)
+
 
 ```
+
+```{r}
+
+cs.model = att_gt(
+  yname = "DUI_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("DUI Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: DUI Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "dui_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("DUI Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: White DUI Arrest Count
+
+```{r}
+
+cs.model = att_gt(
+  yname = "DUI_Total_White",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White DUI Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: White DUI Arrest Rate
+
+* $Rate = WhiteDUIs / WhitePopulation$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "white_dui_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White DUI Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black DUI Arrests
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "DUI_Total_Black",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black DUI Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black DUI Arrest Rate
+
+* $Rate = BlackDUIs / BlackPopulation$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "black_dui_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black DUI Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+* Looks like there's an upward effect
+
+### Outcome: Other Race DUI Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Other_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race DUI Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Other Race DUI Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "other_dui_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race DUI Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Proportion White DUIs
+
+$Prop_{white} = WhiteDUI / Total DUI$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Prop_Arrests_White_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Proportion White DUI Arrests (Weighted by State Population)")
+
+
+```
+
+### Outcome: Proportion Black DUIs
+
+$Prop_{Black} = BlackDUI / Total DUI$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Prop_Arrests_Black_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Proportion Black DUI Arrests (Weighted by State Population)")
+
+
+```
+
+### Outcome: Proportion Other Race DUIs
+
+$Prop_{Other} = OtherDUI / Total DUI$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Prop_Arrests_Other_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Proportion Other DUI Arrests (Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Drug Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Drug_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drug Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Drug Arrest Rate
+
+$ArrestRate = TotalDrugArrests/Population$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "total_drug_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drug Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Drug Arrests
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Drug_White",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White Drug Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Drug Arrest Rate
+
+$ArrestRate = WhiteDrugArrests / WhitePopulation$
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "white_drug_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White Drug Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Drug Arrests
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Drug_Black",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Drug Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Drug Arrest Rate
+
+$ArrestRate = BlackDrugArrests / BlackPopulation$
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "black_drug_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Drug Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+
+### Outcome: Other Race Drug Arrests
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Other_Drug",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race Drug Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Other Race Drug Arrest Rate
+
+$ArrestRate = OtherDrugArrests / OtherPopulation$
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "other_drug_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race Drug Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Cannabis Possession Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Poss_Cann_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Poss Cannabis Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Cannabis Possession Arrest Rate
+
+$ArrestRate = TotalCannPosArrests / Population$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Poss_Cann_Rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Poss Cann Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Cannabis Possession Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Poss_Cann_White",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total White Poss Cannabis Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Cannabis Possession Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "white_cann_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White Poss Cannabis Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Cannabis Possession Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Poss_Cann_Total_Black",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Poss Cannabis Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Cannabis Possession Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "black_cann_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Poss Cannabis Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Cannabis Possession Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Other_Poss_Cann",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Poss Cannabis Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Cannabis Possession Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "other_cann_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Poss Cannabis Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Drunkenness Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Drunkenness_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drunkenness Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Drunkenness Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "drunkenness_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drunkenness Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Drunkenness Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Drunkenness_White",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drunkenness Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Drunkenness Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "white_drunkenness_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White Drunkenness Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Drunkenness Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Drunkenness_Black",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Drunkenness Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Drunkenness Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "black_drunkenness_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Drunkenness Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Other Race Drunkenness Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Other_Drunkenness",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race Drunkenness Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Other Race Drunkenness Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "other_drunkenness_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race Drunkenness Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+
+## Only Agencies That Report All 12 Months, for Every Year 1980-2000
+
+```{r}
+
+# ### Declare treated states
+# treated_states = c("washington", "wisconsin", "rhode island", "texas", "idaho", "iowa",
+#                    "michigan", "minnesota",
+#                    "oregon")
+# 
+# ###################################
+# ### Uniform Crime Reporting (UCR)
+# ###################################
+# 
+# ### Initialize a dataframe
+# df = data.frame()
+# 
+# ### The UCR data is broken into years
+# ### This for loop cycles through the declared years and
+# ### concatenates them (flattens to one dataframe)
+# 
+# ### 1980 to 2000 captures 6 years before first treatment
+# ### And 6 years after last treatment
+# for (i in 1980:2000) {
+# 
+#   filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+# 
+#   ### Here the variables from UCR data are selected
+#   temp = readRDS(filename) %>%
+#     select(fips_county_code,
+#            state, population,
+#            agency_name,
+#            ori9,
+#            fips_place_code,
+#            population_group,
+#            year,
+#            month,
+#            starts_with("dui"),
+#            number_of_months_reported,
+#            starts_with("poss_cannabis"),
+#            starts_with("poss_drug_total"),
+#            starts_with("drunkenness"),
+#            starts_with("total_drug")
+#            )
+# 
+#   df = rbind(df, temp)
+# 
+# }
+# 
+# fwrite(df, file = "ucr1980_2000.csv")
+
+df = fread("ucr1980_2000.csv")
+
+
+```
+
+
+```{r, echo = TRUE}
+
+all.agencies = length(unique(df$ori9))
+
+comp1 = df %>%
+  filter(number_of_months_reported == 12) %>%
+  group_by(state, ori9) %>%
+  summarise(n = n()) %>%
+  filter(n == 12*21)
+
+complete.agencies = length(unique(comp1$ori9))
+
+complete.agencies
+
+complete.agencies / all.agencies
+
+
+```
+
+
+```{r}
+
+complete.list = unique(comp1$ori9)
+
+```
+
+Only 6.7% of agencies report all months during our time frame. 
+
+```{r}
+
+### Declare treated states
+treated_states = c("washington", "wisconsin", "rhode island", "texas", "idaho", "iowa",
+                   "michigan", "minnesota",
+                   "oregon")
+
+###################################
+### Uniform Crime Reporting (UCR)
+###################################
+
+### Initialize a dataframe
+# df = data.frame()
+
+### The UCR data is broken into years
+### This for loop cycles through the declared years and
+### concatenates them (flattens to one dataframe)
+
+### 1980 to 2000 captures 6 years before first treatment
+### And 6 years after last treatment
+# for (i in 1980:2000) {
+#   
+#   filename = paste0("~/michigan_arrests/data/ucr_arrests_monthly_all_crimes_race_sex_", i, ".rds")
+# 
+#   ### Here the variables from UCR data are selected
+#   temp = readRDS(filename) %>%
+#     select(fips_county_code,
+#            state, population,
+#            agency_name,
+#            fips_place_code,
+#            population_group,
+#            year,
+#            month,
+#            starts_with("dui"),
+#            number_of_months_reported,
+#            starts_with("poss_cannabis"),
+#            starts_with("poss_drug_total"),
+#            starts_with("drunkenness"),
+#            starts_with("total_drug")
+#            )
+# 
+#   df = rbind(df, temp)
+# 
+# }
+# 
+# fwrite(df, file = "ucr1980_2000.csv")
+
+df = fread("ucr1980_2000.csv")
+
+```
+
+
+### Outcome: DUI Arrest Count
+
+```{r}
+
+### Here I group by year, state, and agency and
+### calculate the total DUI
+df.sum = df %>%
+  group_by(year, state) %>%
+  filter(ori9 %in% complete.list) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_Total_White = sum(dui_tot_white),
+            DUI_Total_Black = sum(dui_tot_black),
+            Prop_Arrests_Black_DUI = DUI_Total_Black / DUI_Total,
+            Prop_Arrests_White_DUI = DUI_Total_White / DUI_Total,
+            Prop_Arrests_Other_DUI = (DUI_Total - DUI_Total_White - DUI_Total_Black) / DUI_Total,
+
+            Poss_Cann_Total = sum(poss_cannabis_tot_arrests),
+            Poss_Cann_White = sum(poss_cannabis_tot_white),
+            Poss_Cann_Total_Black = sum(poss_cannabis_tot_black),
+
+            Poss_Drug_Total = sum(poss_drug_total_tot_arrests),
+            Poss_Drug_Total_Black = sum(poss_drug_total_tot_black),
+            
+            Total_Drug_Total = sum(total_drug_tot_arrests),
+            Total_Drug_White = sum(total_drug_tot_white),
+            Total_Drug_Black = sum(total_drug_tot_black),
+            
+            Drunkenness_Total = sum(drunkenness_tot_arrests),
+            Drunkenness_White = sum(drunkenness_tot_white),
+            Drunkenness_Black = sum(drunkenness_tot_black)
+            
+            
+            ) %>%
+  ungroup()
+
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  ### Although the month is declared above, we only use the treatyear
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  ### Make the time to treat column
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  ### Make indicator for treated state
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  ### Make years discrete
+  mutate(fyear = as.factor(year)) 
+
+
+### These are some non-states that are dropped from the analysis
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+### This filters out the non-states
+df2 = df.sum %>%
+  filter(!state %in% nonstate)
+
+### Attach state weights
+### Read in the file
+state_populations = read_excel("laws and population.xlsx")
+
+### Select relevant columns
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+### Rename and clean some columns so that they will join to 
+### our UCR and FARS data
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+df3 = df2 %>%
+  left_join(state_populations) %>%
+  drop_na(population) 
+
+df3 = df3 %>%
+  mutate(timetotreat = replace_na(df3$timetotreat, 0)) %>%
+  mutate(post = ifelse(timetotreat > 0, 1, 0)) %>%
+  rename(treated_alt = treated)
+
+df3 = df3 %>%
+  mutate(gname = replace_na(as.numeric(df3$treatyear), 0)) %>%
+  mutate(id.numeric = as.numeric(as.factor(state))) %>%
+  filter(DUI_Total > 0)
+
+countypop = read_dta("countypopagerace_19692017.dta")
+
+statepops = countypop %>%
+  filter(year %in% 1980:2000) %>%
+  group_by(year, stfips, race) %>%
+  summarise(population = sum(population))
+
+state.id = read_csv("accident.CSV") %>% # Read in csv
+  select(STATE, STATENAME) %>% # then select state id and state name columns
+  group_by(STATENAME) %>% # then group by state
+  slice(1) %>% # then grab one observation
+  mutate(STATENAME = tolower(STATENAME)) %>% # then make the state names lowercase
+  rename(state = STATE) 
+
+fips.appendage = state.id %>%
+  rename(stfips = state) %>%
+  rename(state = STATENAME)
+
+statepops = statepops %>%
+  left_join(fips.appendage)
+
+statepops = statepops %>%
+  spread(race, population) %>%
+  rename(white_pop = "1") %>%
+  rename(black_pop = "2") %>%
+  rename(other_pop = "3")
+
+df4 = df3 %>%
+  left_join(statepops) %>%
+  mutate(population_nom = population * 1000) %>%
+  mutate(dui_rate = DUI_Total / population_nom) %>%
+  mutate(white_dui_rate = DUI_Total_White / white_pop) %>%
+  mutate(black_dui_rate = DUI_Total_Black / black_pop) %>%
+  mutate(Total_Other_DUI = DUI_Total - DUI_Total_White - DUI_Total_Black) %>%
+  mutate(other_dui_rate = Total_Other_DUI / other_pop) %>%
+  mutate(total_drug_rate = Total_Drug_Total / population_nom) %>%
+  mutate(white_drug_rate = Total_Drug_White / white_pop) %>%
+  mutate(black_drug_rate = Total_Drug_Black / black_pop) %>%
+  mutate(Total_Other_Drug = Total_Drug_Total - Total_Drug_White - Total_Drug_Black) %>%
+  mutate(other_drug_rate = Total_Other_Drug / other_pop) %>%
+  mutate(Total_Poss_Cann_Rate = Poss_Cann_Total / population_nom) %>%
+  mutate(white_cann_rate = Poss_Cann_White / white_pop) %>%
+  mutate(black_cann_rate = Poss_Cann_Total_Black / black_pop) %>%
+  mutate(Other_Poss_Cann = Poss_Cann_Total - Poss_Cann_White - Poss_Cann_Total_Black) %>%
+  mutate(other_cann_rate = Other_Poss_Cann / other_pop) %>%
+  mutate(drunkenness_rate = Drunkenness_Total / population_nom) %>%
+  mutate(white_drunkenness_rate = Drunkenness_White / white_pop) %>%
+  mutate(black_drunkenness_rate = Drunkenness_Black / black_pop) %>%
+  mutate(Other_Drunkenness = Drunkenness_Total - Drunkenness_White - Drunkenness_Black) %>%
+  mutate(other_drunkenness_rate = Other_Drunkenness / other_pop)
+
+
+```
+
+```{r}
+
+cs.model = att_gt(
+  yname = "DUI_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("DUI Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: DUI Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "dui_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("DUI Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: White DUI Arrest Count
+
+```{r}
+
+cs.model = att_gt(
+  yname = "DUI_Total_White",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White DUI Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: White DUI Arrest Rate
+
+* $Rate = WhiteDUIs / WhitePopulation$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "white_dui_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White DUI Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black DUI Arrests
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "DUI_Total_Black",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black DUI Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black DUI Arrest Rate
+
+* $Rate = BlackDUIs / BlackPopulation$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "black_dui_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black DUI Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+* Looks like there's an upward effect
+
+### Outcome: Other Race DUI Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Other_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race DUI Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Other Race DUI Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "other_dui_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race DUI Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Proportion White DUIs
+
+$Prop_{white} = WhiteDUI / Total DUI$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Prop_Arrests_White_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Proportion White DUI Arrests (Weighted by State Population)")
+
+
+```
+
+### Outcome: Proportion Black DUIs
+
+$Prop_{Black} = BlackDUI / Total DUI$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Prop_Arrests_Black_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Proportion Black DUI Arrests (Weighted by State Population)")
+
+
+```
+
+### Outcome: Proportion Other Race DUIs
+
+$Prop_{Other} = OtherDUI / Total DUI$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Prop_Arrests_Other_DUI",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Proportion Other DUI Arrests (Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Drug Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Drug_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drug Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Drug Arrest Rate
+
+$ArrestRate = TotalDrugArrests/Population$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "total_drug_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drug Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Drug Arrests
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Drug_White",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White Drug Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Drug Arrest Rate
+
+$ArrestRate = WhiteDrugArrests / WhitePopulation$
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "white_drug_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White Drug Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Drug Arrests
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Drug_Black",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Drug Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Drug Arrest Rate
+
+$ArrestRate = BlackDrugArrests / BlackPopulation$
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "black_drug_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Drug Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+
+### Outcome: Other Race Drug Arrests
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Other_Drug",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race Drug Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Other Race Drug Arrest Rate
+
+$ArrestRate = OtherDrugArrests / OtherPopulation$
+
+
+```{r}
+
+cs.model = att_gt(
+  yname = "other_drug_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race Drug Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Cannabis Possession Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Poss_Cann_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Poss Cannabis Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Cannabis Possession Arrest Rate
+
+$ArrestRate = TotalCannPosArrests / Population$
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Total_Poss_Cann_Rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Poss Cann Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Cannabis Possession Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Poss_Cann_White",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total White Poss Cannabis Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Cannabis Possession Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "white_cann_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White Poss Cannabis Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Cannabis Possession Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Poss_Cann_Total_Black",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Poss Cannabis Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Cannabis Possession Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "black_cann_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Poss Cannabis Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Cannabis Possession Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Other_Poss_Cann",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Poss Cannabis Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Cannabis Possession Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "other_cann_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Poss Cannabis Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Drunkenness Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Drunkenness_Total",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drunkenness Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Total Drunkenness Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "drunkenness_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drunkenness Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Drunkenness Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Drunkenness_White",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Total Drunkenness Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: White Drunkenness Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "white_drunkenness_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("White Drunkenness Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Drunkenness Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Drunkenness_Black",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Drunkenness Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Black Drunkenness Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "black_drunkenness_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Black Drunkenness Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+### Outcome: Other Race Drunkenness Arrests
+
+```{r}
+
+cs.model = att_gt(
+  yname = "Other_Drunkenness",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race Drunkenness Arrests (Count, Weighted by State Population)")
+
+
+```
+
+### Outcome: Other Race Drunkenness Arrest Rate
+
+```{r}
+
+cs.model = att_gt(
+  yname = "other_drunkenness_rate",
+  tname = "year",
+  idname = "id.numeric",
+  gname = "gname",
+  allow_unbalanced_panel = TRUE,
+  weightsname = "population",
+  data = df4
+)
+
+```
+
+```{r}
+
+cs.dui = aggte(cs.model, type = "dynamic", na.rm = TRUE)
+
+ggdid(cs.dui) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle("Other Race Drunkenness Arrests (Rate, Weighted by State Population)")
+
+
+```
+
+
+
+
+
+
