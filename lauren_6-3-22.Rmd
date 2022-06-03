@@ -3,6 +3,7 @@ title: "Methods and Results"
 author: "Blain Morin"
 date: "6/2/2022"
 output: pdf_document
+urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
@@ -205,19 +206,73 @@ state_unemployment = state_unemployment %>%
   rename(state = "Area") %>%
   mutate(year = as.integer(year))
 
+
+#########################
+#### Age 65 and older
+#########################
+
+statepop = countypop %>%
+  filter(year %in% 1980:2000) %>%
+  group_by(year, stfips) %>%
+  summarise(populationtot = sum(population))
+
+statepop2 = countypop %>%
+  filter(year %in% 1980:2000) %>%
+  filter(age >= 14) %>%
+  group_by(year, stfips) %>%
+  summarise(population = sum(population))
+
+temp = statepop2 %>%
+  left_join(statepop) %>%
+  mutate(old65 = population / populationtot)
+
+state.id = read_csv("accident.CSV") %>% # Read in csv
+  select(STATE, STATENAME) %>% # then select state id and state name columns
+  group_by(STATENAME) %>% # then group by state
+  slice(1) %>% # then grab one observation
+  mutate(STATENAME = tolower(STATENAME)) %>% # then make the state names lowercase
+  rename(state = STATE) 
+
+fips.appendage = state.id %>%
+  rename(stfips = state) %>%
+  rename(state = STATENAME)
+
+temp65 = temp %>%
+  left_join(fips.appendage)
+
+state_per_cap_income = read_csv("state_per_cap_income.csv", 
+    skip = 4)
+
+state_per_cap_income = state_per_cap_income[2:52, -1]
+
+state_per_cap_income = state_per_cap_income %>%
+  mutate(GeoName = str_replace(GeoName, '\\*', '')) %>%
+  mutate(GeoName = str_replace(GeoName, "Hawaii ", 'Hawaii')) %>%
+  mutate(GeoName = str_replace(GeoName, "Alaska ", 'Alaska')) %>%
+  mutate(GeoName = tolower(GeoName)) %>%
+  rename(state = GeoName) %>%
+  filter(state != "district of columbia") %>%
+  gather(key = "year", value = "per_cap_income", "1980":"2000") %>%
+  mutate(year = as.integer(year))
+
+
+  
+
 fars = fars %>%
   filter(state != "district of columbia") %>%
-  left_join(state_unemployment)
-
+  left_join(state_unemployment) %>%
+  left_join(state_per_cap_income) %>%
+  left_join(temp65) %>%
+  mutate(old65 = old65*100)
 
 ucr.sum = df4 %>%
   group_by(treated_alt) %>%
   summarise(ave_duis = formatC(mean(DUI_Total), format = "f", digits = 2),
             sd_dui = sd(DUI_Total),
-            ave_white_dui_rate = formatC(mean(white_dui_rate), format = "f", digits = 4),
-            sd_white_dui_rate = sd(white_dui_rate, na.rm = T),
-            ave_black_dui_rate = formatC(mean(black_dui_rate), format = "f", digits = 4),
-            sd_black_dui_rate = sd(black_dui_rate, na.rm = T))
+            ave_white_dui_rate = formatC(mean(white_dui_rate * 100), format = "f", digits = 4),
+            sd_white_dui_rate = sd(white_dui_rate * 100, na.rm = T),
+            ave_black_dui_rate = formatC(mean(black_dui_rate * 100), format = "f", digits = 4),
+            sd_black_dui_rate = sd(black_dui_rate * 100, na.rm = T))
 
 fars.sum = fars %>%
   rename(treated_alt = treated) %>%
@@ -227,7 +282,11 @@ fars.sum = fars %>%
             ave_n_fatals = formatC(mean(n_fatalities), format = "f", digits = 2),
             sd_n_fatal = sd(n_fatalities),
             ave_unemp_rate = formatC(mean(unemp_rate), format = "f", digits = 2),
-            sd_unemp_rate = sd(unemp_rate))
+            sd_unemp_rate = sd(unemp_rate),
+            ave_per_cap_income = formatC(mean(per_cap_income), format = "f", digits = 2),
+            sd_per_cap_income = sd(per_cap_income),
+            ave_old_65 = formatC(mean(old65), format = "f", digits = 2),
+            sd_old_65 = sd(old65))
 
 sum.df = cbind(ucr.sum, fars.sum)
 
@@ -253,26 +312,20 @@ thedf = thedf %>%
   filter(grepl("ave", Variable))
 
 thedf$Variable = c("Average # DUI Arrests",
-              "Average White DUI Rate",
-               "Average Black DUI Rate",
+              "Average White DUI Rate (%)",
+               "Average Black DUI Rate (%)",
                "Average # Fatal Crashes",
                "Average # Crash Fatalities",
-              "Average Unemployment Rate (%)")
+              "Average Unemployment Rate (%)",
+              "Average Per Capita Income ($)",
+              "Average % of Population 65+")
 
 thedf %>%
   kbl(caption = "Descriptive Statistics", booktabs = T) %>%
   kable_styling(latex_options = c("hold_position")) %>%
   pack_rows("UCR Variables", 1, 3) %>%
   pack_rows("FARS Variables", 4, 5) %>%
-  pack_rows("Controls", 6, 6)
-
-
-
-```
-
-
-```{r}
-
+  pack_rows("Controls", 6, 8)
 
 
 
@@ -281,3 +334,9 @@ thedf %>%
 
 
 
+
+
+Data sources:
+
+* [State Unemployment Rates](https://www.icip.iastate.edu/tables/employment/unemployment-states)
+* [State per capita income](https://apps.bea.gov/iTable/iTable.cfm?reqid=70&step=1&acrdn=2)
