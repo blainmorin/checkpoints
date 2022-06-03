@@ -186,14 +186,92 @@ df4 = df3 %>%
 
 fars = fread("state.fars.1980.2000.csv")
 
+state_unemployment = read_excel("state_unemployment.xls", 
+    sheet = "States", skip = 5)
+
+state_unemployment = state_unemployment[2:52,]
+
+state_unemployment = state_unemployment %>%
+  filter(Area != "District of Columbia") %>%
+  select(-Fips)
+
+state_unemployment = state_unemployment[,1:22]
+
+state_unemployment = state_unemployment %>%
+  gather(key = "year", "unemp_rate", "1980":"2000")
+
+state_unemployment = state_unemployment %>%
+  mutate(Area = tolower(Area)) %>%
+  rename(state = "Area") %>%
+  mutate(year = as.integer(year))
+
+fars = fars %>%
+  filter(state != "district of columbia") %>%
+  left_join(state_unemployment)
+
+
 ucr.sum = df4 %>%
   group_by(treated_alt) %>%
-  summarise(ave_duis = mean(DUI_Total),
+  summarise(ave_duis = formatC(mean(DUI_Total), format = "f", digits = 2),
             sd_dui = sd(DUI_Total),
-            white_dui_rate = mean(white_dui_rate),
-            sd_white_dui_rate = sd(white_dui_rate),
-            black_dui_rate = mean(black_dui_rate),
-            sd_black_dui_rate = mean(black_dui_rate))
+            ave_white_dui_rate = formatC(mean(white_dui_rate), format = "f", digits = 4),
+            sd_white_dui_rate = sd(white_dui_rate, na.rm = T),
+            ave_black_dui_rate = formatC(mean(black_dui_rate), format = "f", digits = 4),
+            sd_black_dui_rate = sd(black_dui_rate, na.rm = T))
+
+fars.sum = fars %>%
+  rename(treated_alt = treated) %>%
+  group_by(treated_alt) %>%
+  summarise(ave_n_crashes = formatC(mean(n_crashes), format = "f", digits = 2),
+            sd_n_crashes = sd(n_crashes),
+            ave_n_fatals = formatC(mean(n_fatalities), format = "f", digits = 2),
+            sd_n_fatal = sd(n_fatalities),
+            ave_unemp_rate = formatC(mean(unemp_rate), format = "f", digits = 2),
+            sd_unemp_rate = sd(unemp_rate))
+
+sum.df = cbind(ucr.sum, fars.sum)
+
+sum.df = sum.df[,-8]
+
+sum.dft = as.data.frame(t(sum.df))
+
+sum.dft = sum.dft[-1,]
+
+thedf = data.frame(
+  
+  Variable = rownames(sum.dft),
+  control = sum.dft$V1,
+  treat = sum.dft$V2
+  
+)
+
+thedf = thedf %>%
+  rename("Control States" = control) %>%
+  rename("Treated States" = treat)
+
+thedf = thedf %>%
+  filter(grepl("ave", Variable))
+
+thedf$Variable = c("Average # DUI Arrests",
+              "Average White DUI Rate",
+               "Average Black DUI Rate",
+               "Average # Fatal Crashes",
+               "Average # Crash Fatalities",
+              "Average Unemployment Rate (%)")
+
+thedf %>%
+  kbl(caption = "Descriptive Statistics", booktabs = T) %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  pack_rows("UCR Variables", 1, 3) %>%
+  pack_rows("FARS Variables", 4, 5) %>%
+  pack_rows("Controls", 6, 6)
+
+
+
+```
+
+
+```{r}
 
 
 
