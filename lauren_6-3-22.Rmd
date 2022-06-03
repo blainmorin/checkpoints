@@ -1,5 +1,5 @@
 ---
-title: "Methods and Results"
+title: "Framework, Methods and Results"
 author: "Blain Morin"
 date: "6/2/2022"
 output: pdf_document
@@ -8,7 +8,7 @@ urlcolor: blue
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE)
 
 library(tidyverse)
 library(lubridate)
@@ -29,6 +29,9 @@ df = fread("ucr1980_2000.csv")
 
 ```
 
+# Theoretical Framwork
+
+![Theoretical Framework](framework.drawio.png){width=80%}
 
 ```{r}
 
@@ -182,6 +185,7 @@ df4 = df3 %>%
 
 ```
 
+\newpage
 
 ```{r}
 
@@ -268,25 +272,25 @@ fars = fars %>%
 ucr.sum = df4 %>%
   group_by(treated_alt) %>%
   summarise(ave_duis = formatC(mean(DUI_Total), format = "f", digits = 2),
-            sd_dui = sd(DUI_Total),
+            sd_dui = formatC(sd(DUI_Total), format = "f", digits = 2),
             ave_white_dui_rate = formatC(mean(white_dui_rate * 100), format = "f", digits = 4),
-            sd_white_dui_rate = sd(white_dui_rate * 100, na.rm = T),
+            sd_white_dui_rate = formatC(sd(white_dui_rate * 100, na.rm = T), format = "f", digits = 4),
             ave_black_dui_rate = formatC(mean(black_dui_rate * 100), format = "f", digits = 4),
-            sd_black_dui_rate = sd(black_dui_rate * 100, na.rm = T))
+            sd_black_dui_rate = formatC(sd(black_dui_rate * 100, na.rm = T), format = "f", digits = 4))
 
 fars.sum = fars %>%
   rename(treated_alt = treated) %>%
   group_by(treated_alt) %>%
   summarise(ave_n_crashes = formatC(mean(n_crashes), format = "f", digits = 2),
-            sd_n_crashes = sd(n_crashes),
+            sd_n_crashes = formatC(sd(n_crashes), format = "f", digits = 2),
             ave_n_fatals = formatC(mean(n_fatalities), format = "f", digits = 2),
-            sd_n_fatal = sd(n_fatalities),
+            sd_n_fatal = formatC(sd(n_fatalities), format = "f", digits = 2),
             ave_unemp_rate = formatC(mean(unemp_rate), format = "f", digits = 2),
-            sd_unemp_rate = sd(unemp_rate),
+            sd_unemp_rate = formatC(sd(unemp_rate), format = "f", digits = 4),
             ave_per_cap_income = formatC(mean(per_cap_income), format = "f", digits = 2),
-            sd_per_cap_income = sd(per_cap_income),
-            ave_old_65 = formatC(mean(old65), format = "f", digits = 2),
-            sd_old_65 = sd(old65))
+            sd_per_cap_income = formatC(sd(per_cap_income), format = "f", digits = 2),
+            ave_old_65 = formatC(mean(old65), format = "f", digits = 4),
+            sd_old_65 = formatC(sd(old65), format = "f", digits = 2))
 
 sum.df = cbind(ucr.sum, fars.sum)
 
@@ -305,11 +309,26 @@ thedf = data.frame(
 )
 
 thedf = thedf %>%
-  rename("Control States" = control) %>%
-  rename("Treated States" = treat)
+  filter(grepl("ave", Variable))
 
 thedf = thedf %>%
-  filter(grepl("ave", Variable))
+  rename("meanc" = control) %>%
+  rename("meant" = treat)
+
+thedf2 = data.frame(
+  
+  Variable = rownames(sum.dft),
+  controlsd = sum.dft$V1,
+  treatsd = sum.dft$V2
+  
+)
+
+
+thedf2 = thedf2 %>%
+  filter(grepl("sd", Variable))
+
+
+
 
 thedf$Variable = c("Average # DUI Arrests",
               "Average White DUI Rate (%)",
@@ -318,14 +337,60 @@ thedf$Variable = c("Average # DUI Arrests",
                "Average # Crash Fatalities",
               "Average Unemployment Rate (%)",
               "Average Per Capita Income ($)",
-              "Average % of Population 65+")
+              "Average Population 65+ (%)")
 
-thedf %>%
-  kbl(caption = "Descriptive Statistics", booktabs = T) %>%
+thedf3 = data.frame(
+  
+  thedf$Variable,
+  thedf$meanc,
+  thedf2$controlsd,
+  thedf$meant,
+  thedf2$treatsd
+  
+)
+
+
+p = c()
+
+for (i in 1:nrow(thedf3)) {
+  
+  diff = as.numeric(thedf3[i, 2]) - as.numeric(thedf3[i, 4])
+  se = sqrt(as.numeric(thedf3[i, 3])^2 / 41  + as.numeric(thedf3[i, 5])^2 / 9)
+  z = diff / se
+  p[i] = 2 * pt(abs(z), df = 48, lower.tail = FALSE)
+  
+}
+
+thedf3$p = formatC(p, format = "f", digits = 2)
+
+colnames(thedf3) = c(
+  
+  " ",
+  "Mean",
+  "Standard Deviation",
+  "Mean",
+  "Standard Deviation",
+  "p-value"
+  
+)
+
+
+
+thedf3 %>%
+  kbl(caption = "Descriptive Statistics", booktabs = T,
+      align = c("l", rep("c", 5))) %>%
   kable_styling(latex_options = c("hold_position")) %>%
   pack_rows("UCR Variables", 1, 3) %>%
   pack_rows("FARS Variables", 4, 5) %>%
-  pack_rows("Controls", 6, 8)
+  pack_rows("Controls", 6, 8) %>%
+  add_header_above(c(" ",
+                     "Control States" = 2,
+                     "Treatment States" = 2,
+                     " ")) %>%
+  footnote(
+    general = "Race DUI Rate is $RaceDUI_{state,year} / RacePopulation_{state,year}$",
+    escape = FALSE
+  )
 
 
 
