@@ -1,0 +1,53 @@
+---
+title: "Untitled"
+author: "Blain Morin"
+date: "8/29/2022"
+output: pdf_document
+urlcolor: blue
+header-includes:
+  - \usepackage{placeins}
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = FALSE)
+
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(plotly)
+library(ggridges)
+library(stargazer)
+library(data.table) 
+library(fixest) 
+library(did)
+library(broom)
+library(haven)
+library(readxl)
+library(kableExtra)
+library(bacondecomp)
+library(data.table)
+library(ggiplot)
+library(gridExtra)
+
+df = fread("ucr1980_2000.csv")
+tc = read_excel("treat_control.xlsx")
+
+
+```
+
+
+
+```{r}
+
+tc = tc %>%
+  mutate(state = state.name[match(State, state.abb)]) %>%
+  mutate(state = ifelse(State == "DC", "district of columbia", state)) %>%
+  mutate(state = tolower(state)) %>%
+  mutate(Treat1 = ifelse(str_detect(Treatment_Category, "treat"), 1, 0)) %>%
+  mutate(Questionable = ifelse(str_detect(Treatment_Category, "ques"), 1, 0))
+
+
+```
+
+
