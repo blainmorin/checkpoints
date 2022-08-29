@@ -1,16 +1,19 @@
 ---
-title: "Untitled"
+title: "Update Treatment and Control States, Filtering"
 author: "Blain Morin"
 date: "8/29/2022"
-output: pdf_document
-urlcolor: blue
-header-includes:
-  - \usepackage{placeins}
+output: html_document
 ---
+
+# Some to do items found:
+
+* Need to update state populations to include DC (it was being dropped)
+* Need to increase year range because of Indiana's late turn off date (2000). Originally our last turnoff date was 1994.
+
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE)
 
 library(tidyverse)
 library(lubridate)
@@ -51,3 +54,2088 @@ tc = tc %>%
 ```
 
 
+```{r}
+
+### Declare treated states
+treated_states = tc %>%
+  filter(Treat1 == 1)
+
+treated_states = treated_states$state
+
+
+### Here I group by year, state, and agency and
+### calculate the total DUI
+df.sum = df %>%
+  group_by(year, state) %>%
+  summarise(DUI_Total = sum(dui_tot_arrests),
+            DUI_Total_White = sum(dui_tot_white),
+            DUI_Total_Black = sum(dui_tot_black),
+            Prop_Arrests_Black_DUI = DUI_Total_Black / DUI_Total,
+            Prop_Arrests_White_DUI = DUI_Total_White / DUI_Total,
+            Prop_Arrests_Other_DUI = (DUI_Total - DUI_Total_White - DUI_Total_Black) / DUI_Total,
+
+            Poss_Cann_Total = sum(poss_cannabis_tot_arrests),
+            Poss_Cann_White = sum(poss_cannabis_tot_white),
+            Poss_Cann_Total_Black = sum(poss_cannabis_tot_black),
+
+            Poss_Drug_Total = sum(poss_drug_total_tot_arrests),
+            Poss_Drug_White = sum(poss_drug_total_tot_white),
+            Poss_Drug_Total_Black = sum(poss_drug_total_tot_black),
+            
+            Total_Drug_Total = sum(total_drug_tot_arrests),
+            Total_Drug_White = sum(total_drug_tot_white),
+            Total_Drug_Black = sum(total_drug_tot_black),
+            
+            Drunkenness_Total = sum(drunkenness_tot_arrests),
+            Drunkenness_White = sum(drunkenness_tot_white),
+            Drunkenness_Black = sum(drunkenness_tot_black)
+            
+            
+            ) %>%
+  ungroup()
+
+
+df.sum = df.sum %>%
+  mutate(treatdate = ifelse(state == "rhode island", "July 1989", NA)) %>%
+  mutate(treatdate = ifelse(state == "washington", "May 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wisconsin", "Aug 1991", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "texas", "June 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "idaho", "June 1988", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "iowa", "May 1986", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "michigan", "Sep 1993", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "minnesota", "Aug 1994", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "oregon", "Sep 1987", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "louisiana", "Mar 1989", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "indiana", "Nov 2000", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "wyoming", "Mar 1975", treatdate)) %>%
+  mutate(treatdate = ifelse(state == "montana", "Mar 1975", treatdate)) %>%
+  ### Although the month is declared above, we only use the treatyear
+  mutate(treatdate = my(treatdate)) %>%
+  mutate(treatyear = format(treatdate, format = "%Y"))
+
+df.sum = df.sum %>%
+  ### Make the time to treat column
+  mutate(timetotreat = as.numeric(year) - as.numeric(treatyear)) %>%
+  ### Make indicator for treated state
+  mutate(treated = ifelse(state %in% treated_states, 1, 0)) %>%
+  ### Make years discrete
+  mutate(fyear = as.factor(year)) 
+
+
+### These are some non-states that are dropped from the analysis
+nonstate = c("canal zone", "guam", "69", "98", "99", "american samoa", "virgin islands", "puerto rico")
+
+### This filters out the non-states
+df2 = df.sum %>%
+  filter(!state %in% nonstate)
+
+### Attach state weights
+### Read in the file
+state_populations = read_excel("laws and population.xlsx")
+
+### Select relevant columns
+state_populations = state_populations %>%
+  select(`state name`, year, `population (hundreds of thousands)`)
+
+### Rename and clean some columns so that they will join to 
+### our UCR and FARS data
+state_populations = state_populations %>%
+  rename(state = `state name`) %>%
+  rename(population = `population (hundreds of thousands)`) %>%
+  mutate(state = tolower(state))
+
+df3 = df2 %>%
+  left_join(state_populations) %>%
+  drop_na(population) 
+
+df3 = df3 %>%
+  mutate(timetotreat = replace_na(df3$timetotreat, 0)) %>%
+  mutate(post = ifelse(timetotreat > 0, 1, 0)) %>%
+  rename(treated_alt = treated)
+
+df3 = df3 %>%
+  mutate(gname = replace_na(as.numeric(df3$treatyear), 0)) %>%
+  mutate(id.numeric = as.numeric(as.factor(state))) %>%
+  filter(DUI_Total >= 0)
+
+countypop = read_dta("countypopagerace_19692017.dta")
+
+statepops = countypop %>%
+  filter(year %in% 1980:2000) %>%
+  group_by(year, stfips, race) %>%
+  summarise(population = sum(population))
+
+state.id = read_csv("accident.CSV") %>% # Read in csv
+  select(STATE, STATENAME) %>% # then select state id and state name columns
+  group_by(STATENAME) %>% # then group by state
+  slice(1) %>% # then grab one observation
+  mutate(STATENAME = tolower(STATENAME)) %>% # then make the state names lowercase
+  rename(state = STATE) 
+
+fips.appendage = state.id %>%
+  rename(stfips = state) %>%
+  rename(state = STATENAME)
+
+statepops = statepops %>%
+  left_join(fips.appendage)
+
+statepops = statepops %>%
+  spread(race, population) %>%
+  rename(white_pop = "1") %>%
+  rename(black_pop = "2") %>%
+  rename(other_pop = "3")
+
+df4 = df3 %>%
+  left_join(statepops) %>%
+  mutate(population_nom = population * 1000) %>%
+  mutate(dui_rate = DUI_Total / population_nom) %>%
+  mutate(white_dui_rate = DUI_Total_White / white_pop) %>%
+  mutate(black_dui_rate = DUI_Total_Black / black_pop) %>%
+  mutate(Total_Other_DUI = DUI_Total - DUI_Total_White - DUI_Total_Black) %>%
+  mutate(other_dui_rate = Total_Other_DUI / other_pop) %>%
+  mutate(total_drug_rate = Total_Drug_Total / population_nom) %>%
+  mutate(white_drug_rate = Total_Drug_White / white_pop) %>%
+  mutate(black_drug_rate = Total_Drug_Black / black_pop) %>%
+  mutate(Total_Other_Drug = Total_Drug_Total - Total_Drug_White - Total_Drug_Black) %>%
+  mutate(other_drug_rate = Total_Other_Drug / other_pop) %>%
+  mutate(Total_Poss_Cann_Rate = Poss_Cann_Total / population_nom) %>%
+  mutate(white_cann_rate = Poss_Cann_White / white_pop) %>%
+  mutate(black_cann_rate = Poss_Cann_Total_Black / black_pop) %>%
+  mutate(Other_Poss_Cann = Poss_Cann_Total - Poss_Cann_White - Poss_Cann_Total_Black) %>%
+  mutate(other_cann_rate = Other_Poss_Cann / other_pop) %>%
+  mutate(drunkenness_rate = Drunkenness_Total / population_nom) %>%
+  mutate(white_drunkenness_rate = Drunkenness_White / white_pop) %>%
+  mutate(black_drunkenness_rate = Drunkenness_Black / black_pop) %>%
+  mutate(Other_Drunkenness = Drunkenness_Total - Drunkenness_White - Drunkenness_Black) %>%
+  mutate(other_drunkenness_rate = Other_Drunkenness / other_pop) %>%
+  mutate(Total_Poss_Drug_Rate = Poss_Drug_Total / population_nom) %>%
+  mutate(white_poss_drug_rate = Poss_Drug_White / white_pop) %>%
+  mutate(black_poss_drug_rate = Poss_Drug_Total_Black / black_pop) %>%
+  mutate(Other_Poss_Drug = Poss_Drug_Total - Poss_Drug_White - Poss_Drug_Total_Black) %>%
+  mutate(other_poss_drug_rate = Other_Poss_Drug / other_pop)
+
+
+fars = fread("state.fars.1980.2000.csv")
+
+state_unemployment = read_excel("state_unemployment.xls", 
+    sheet = "States", skip = 5)
+
+state_unemployment = state_unemployment[2:52,]
+
+state_unemployment = state_unemployment %>%
+  filter(Area != "District of Columbia") %>%
+  select(-Fips)
+
+state_unemployment = state_unemployment[,1:22]
+
+state_unemployment = state_unemployment %>%
+  gather(key = "year", "unemp_rate", "1980":"2000")
+
+state_unemployment = state_unemployment %>%
+  mutate(Area = tolower(Area)) %>%
+  rename(state = "Area") %>%
+  mutate(year = as.integer(year))
+
+
+#########################
+#### Age 65 and older
+#########################
+
+statepop = countypop %>%
+  filter(year %in% 1980:2000) %>%
+  group_by(year, stfips) %>%
+  summarise(populationtot = sum(population))
+
+statepop2 = countypop %>%
+  filter(year %in% 1980:2000) %>%
+  filter(age >= 14) %>%
+  group_by(year, stfips) %>%
+  summarise(population = sum(population))
+
+temp = statepop2 %>%
+  left_join(statepop) %>%
+  mutate(old65 = population / populationtot)
+
+state.id = read_csv("accident.CSV") %>% # Read in csv
+  select(STATE, STATENAME) %>% # then select state id and state name columns
+  group_by(STATENAME) %>% # then group by state
+  slice(1) %>% # then grab one observation
+  mutate(STATENAME = tolower(STATENAME)) %>% # then make the state names lowercase
+  rename(state = STATE) 
+
+fips.appendage = state.id %>%
+  rename(stfips = state) %>%
+  rename(state = STATENAME)
+
+temp65 = temp %>%
+  left_join(fips.appendage)
+
+state_per_cap_income = read_csv("state_per_cap_income.csv", 
+    skip = 4)
+
+state_per_cap_income = state_per_cap_income[2:52, -1]
+
+state_per_cap_income = state_per_cap_income %>%
+  mutate(GeoName = str_replace(GeoName, '\\*', '')) %>%
+  mutate(GeoName = str_replace(GeoName, "Hawaii ", 'Hawaii')) %>%
+  mutate(GeoName = str_replace(GeoName, "Alaska ", 'Alaska')) %>%
+  mutate(GeoName = tolower(GeoName)) %>%
+  rename(state = GeoName) %>%
+  gather(key = "year", value = "per_cap_income", "1980":"2000") %>%
+  mutate(year = as.integer(year))
+
+
+
+fars = fars %>%
+  filter(state != "district of columbia") %>%
+  left_join(state_unemployment) %>%
+  left_join(state_per_cap_income) %>%
+  left_join(temp65) %>%
+  mutate(old65 = old65*100)
+
+final.data = fars %>%
+  left_join(df4, by = c("state", "year", "stfips")) %>%
+  mutate(gname = ifelse(gname == 0, 1000, gname)) %>%
+  mutate(treatyear.x = replace_na(as.numeric(treatyear.x), 1000)) %>%
+  left_join(tc)
+
+```
+
+# Original Analysis
+
+* Repeated with the new state turn off dates
+
+```{r, fig.height=10}
+
+dui_event = feols(DUI_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                  weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+dui_event.sa = feols(DUI_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+a = ggiplot(list('TWFE' = dui_event, 'Sun & Abraham (2020)' = dui_event.sa),
+        main = 'Event Study: # DUI Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  ylim(-30000, 50000) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylab("Estimate")
+
+crashes_event = feols(n_crashes ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+crashes_event.sa = feols(n_crashes ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+b = ggiplot(list('TWFE' = crashes_event, 'Sun & Abraham (2020)' = crashes_event.sa),
+        main = 'Event Study: # Fatal Crashes', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-300, 700) +
+  ylab("Estimate")
+
+
+drug_event = feols(Poss_Drug_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+drug_event.sa = feols(Poss_Drug_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+c = ggiplot(list('TWFE' = drug_event, 'Sun & Abraham (2020)' = drug_event.sa),
+        main = 'Event Study: Total Drug Possession Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-16000, 15000) +
+  ylab("Estimate")
+
+cann_event = feols(Poss_Cann_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+cann_event.sa = feols(Poss_Cann_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+d = ggiplot(list('TWFE' = drug_event, 'Sun & Abraham (2020)' = drug_event.sa),
+        main = 'Event Study: Total Cannabis Possession Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "right") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-16000, 15000) +
+  ylab("Estimate")
+
+grid.arrange(b, a, c, d, ncol = 1)
+
+
+```
+
+```{r, fig.height=10}
+
+white_dui = feols(white_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+black_dui = feols(black_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+other_dui = feols(other_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+e = ggiplot(list('White Rate' = white_dui,
+             'Black Rate' = black_dui,
+             'Other Rate' = other_dui),
+        main = 'Event Study: DUI Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  ylim(-.006, .005) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+
+white_drug = feols(white_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+black_drug = feols(black_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+other_drug = feols(other_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+f = ggiplot(list('White Rate' = white_drug,
+             'Black Rate' = black_drug,
+             'Other Rate' = other_drug),
+        main = 'Event Study: All Drug Possession Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  ylim(-.01, .005) +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+white_cann = feols(white_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+black_cann = feols(black_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+other_cann = feols(other_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data$population_nom,
+                  cluster = ~state,
+                  data = final.data)
+
+g = ggiplot(list('White Rate' = white_cann,
+             'Black Rate' = black_cann,
+             'Other Rate' = other_cann),
+        main = 'Event Study: Cannabis Possession Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  ylim(-.002, .002) +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+
+grid.arrange(e, f, g, ncol = 1)
+
+```
+
+```{r}
+
+dui = tidy(
+  summary(dui_event.sa, agg = "att")
+)[1,]
+
+crash = tidy(
+  summary(crashes_event.sa, agg = "att")
+)[1,]
+
+drug = tidy(
+  summary(drug_event.sa, agg = "att")
+)[1,]
+
+cann = tidy(
+  summary(cann_event.sa, agg = "att")
+)[1,]
+
+wdui = tidy(
+  summary(white_dui, agg = "att")
+)[1,]
+
+bdui = tidy(
+  summary(black_dui, agg = "att")
+)[1,]
+
+odui = tidy(
+  summary(other_dui, agg = "att")
+)[1,]
+
+wdrug = tidy(
+  summary(white_drug, agg = "att")
+)[1,]
+
+bdrug = tidy(
+  summary(black_drug, agg = "att")
+)[1,]
+
+odrug = tidy(
+  summary(other_drug, agg = "att")
+)[1,]
+
+wcann = tidy(
+  summary(white_cann, agg = "att")
+)[1,]
+
+bcann = tidy(
+  summary(black_cann, agg = "att")
+)[1,]
+
+ocann = tidy(
+  summary(other_cann, agg = "att")
+)[1,]
+
+att.df = rbind(dui,
+               crash,
+               drug,
+               cann,
+               wdui,
+               bdui,
+               odui,
+               wdrug,
+               bdrug,
+               odrug,
+               wcann,
+               bcann,
+               ocann)
+
+att.df$term = c(
+  "DUI Arrests",
+  "Fatal Crashes",
+  "Any Drug Possession",
+  "Cannabis Possession",
+  "White",
+  "Black",
+  "Other",
+  "White",
+  "Black",
+  "Other",
+  "White",
+  "Black",
+  "Other"
+)
+
+att.df.appandage = final.data %>%
+  filter(treated == 1) %>%
+  filter(timetotreat.x <= 0) %>%
+  summarise(u.dui = mean(DUI_Total),
+            u.crashes = mean(n_crashes),
+            u.drug = mean(Poss_Drug_Total),
+            u.cann = mean(Poss_Cann_Total),
+            u.white.dui = mean(white_dui_rate),
+            u.black.dui = mean(black_dui_rate),
+            u.other.dui = mean(other_dui_rate),
+            u.white.drug = mean(white_drug_rate),
+            u.black.drug = mean(black_drug_rate),
+            u.other.drug = mean(other_drug_rate),
+            u.white.cann = mean(white_cann_rate),
+            u.black.cann = mean(black_cann_rate),
+            u.other.cann = mean(other_cann_rate))
+
+att.df.appandage = t(att.df.appandage)
+
+att.df = cbind(att.df, att.df.appandage)
+
+row.names(att.df) = NULL
+
+att.df = att.df %>%
+  mutate(delta = estimate / att.df.appandage * 100) %>%
+  select(-att.df.appandage)
+
+att.df$estimate[1:4] = formatC(att.df$estimate[1:4], format = "f", digits = 2)
+att.df$estimate[5:13] = as.numeric(att.df$estimate[5:13]) * 100
+att.df$estimate[5:13] = formatC(as.numeric(att.df$estimate[5:13]), format = "f", digits = 4)
+
+att.df$std.error = formatC(att.df$std.error, format = "f", digits = 4)
+
+att.df$statistic = formatC(att.df$statistic, format = "f", digits = 2)
+
+att.df$p.value = formatC(att.df$p.value, format = "f", digits = 4)
+
+att.df$delta = formatC(att.df$delta, format = "f", digits = 2)
+
+
+colnames(att.df) = c(
+  
+  "Outcome",
+  "ATT Estimate",
+  "Std. Error",
+  "t-stat",
+  "p-value",
+  "\\% Change$^1$"
+  
+)
+
+
+
+att.df %>%
+  kbl(caption = "Average Treatment Effect (ATT) Across Outcomes",
+      booktabs = T,
+      align = c("l", rep("c", 5)),
+      escape = FALSE) %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  pack_rows("Crash and Arrest Counts", 1, 4) %>%
+  pack_rows("DUI Rates", 5, 7) %>%
+  pack_rows("Any Drug Possession Rates", 8, 10) %>%
+  pack_rows("Cannabis Possession Rates", 11, 13) %>%
+  footnote(number = c("% Change relative to average before SC turn off"))
+
+```
+
+# Drop questionable treatments and controls
+
+```{r}
+
+final.data2 = final.data %>%
+  filter(Questionable == 0)
+
+
+```
+
+```{r, fig.height=10}
+
+dui_event = feols(DUI_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                  weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+dui_event.sa = feols(DUI_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+a = ggiplot(list('TWFE' = dui_event, 'Sun & Abraham (2020)' = dui_event.sa),
+        main = 'Event Study: # DUI Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  ylim(-30000, 50000) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylab("Estimate")
+
+crashes_event = feols(n_crashes ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+crashes_event.sa = feols(n_crashes ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+b = ggiplot(list('TWFE' = crashes_event, 'Sun & Abraham (2020)' = crashes_event.sa),
+        main = 'Event Study: # Fatal Crashes', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-300, 700) +
+  ylab("Estimate")
+
+
+drug_event = feols(Poss_Drug_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+drug_event.sa = feols(Poss_Drug_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+c = ggiplot(list('TWFE' = drug_event, 'Sun & Abraham (2020)' = drug_event.sa),
+        main = 'Event Study: Total Drug Possession Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-16000, 15000) +
+  ylab("Estimate")
+
+cann_event = feols(Poss_Cann_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+cann_event.sa = feols(Poss_Cann_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+d = ggiplot(list('TWFE' = drug_event, 'Sun & Abraham (2020)' = drug_event.sa),
+        main = 'Event Study: Total Cannabis Possession Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "right") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-16000, 15000) +
+  ylab("Estimate")
+
+grid.arrange(b, a, c, d, ncol = 1)
+
+
+```
+
+```{r, fig.height=10}
+
+white_dui = feols(white_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+black_dui = feols(black_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+other_dui = feols(other_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+e = ggiplot(list('White Rate' = white_dui,
+             'Black Rate' = black_dui,
+             'Other Rate' = other_dui),
+        main = 'Event Study: DUI Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  ylim(-.006, .005) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+
+white_drug = feols(white_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+black_drug = feols(black_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+other_drug = feols(other_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+f = ggiplot(list('White Rate' = white_drug,
+             'Black Rate' = black_drug,
+             'Other Rate' = other_drug),
+        main = 'Event Study: All Drug Possession Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  ylim(-.01, .005) +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+white_cann = feols(white_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+black_cann = feols(black_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+other_cann = feols(other_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data2$population_nom,
+                  cluster = ~state,
+                  data = final.data2)
+
+g = ggiplot(list('White Rate' = white_cann,
+             'Black Rate' = black_cann,
+             'Other Rate' = other_cann),
+        main = 'Event Study: Cannabis Possession Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  ylim(-.002, .002) +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+
+grid.arrange(e, f, g, ncol = 1)
+
+```
+
+```{r}
+
+dui = tidy(
+  summary(dui_event.sa, agg = "att")
+)[1,]
+
+crash = tidy(
+  summary(crashes_event.sa, agg = "att")
+)[1,]
+
+drug = tidy(
+  summary(drug_event.sa, agg = "att")
+)[1,]
+
+cann = tidy(
+  summary(cann_event.sa, agg = "att")
+)[1,]
+
+wdui = tidy(
+  summary(white_dui, agg = "att")
+)[1,]
+
+bdui = tidy(
+  summary(black_dui, agg = "att")
+)[1,]
+
+odui = tidy(
+  summary(other_dui, agg = "att")
+)[1,]
+
+wdrug = tidy(
+  summary(white_drug, agg = "att")
+)[1,]
+
+bdrug = tidy(
+  summary(black_drug, agg = "att")
+)[1,]
+
+odrug = tidy(
+  summary(other_drug, agg = "att")
+)[1,]
+
+wcann = tidy(
+  summary(white_cann, agg = "att")
+)[1,]
+
+bcann = tidy(
+  summary(black_cann, agg = "att")
+)[1,]
+
+ocann = tidy(
+  summary(other_cann, agg = "att")
+)[1,]
+
+att.df = rbind(dui,
+               crash,
+               drug,
+               cann,
+               wdui,
+               bdui,
+               odui,
+               wdrug,
+               bdrug,
+               odrug,
+               wcann,
+               bcann,
+               ocann)
+
+att.df$term = c(
+  "DUI Arrests",
+  "Fatal Crashes",
+  "Any Drug Possession",
+  "Cannabis Possession",
+  "White",
+  "Black",
+  "Other",
+  "White",
+  "Black",
+  "Other",
+  "White",
+  "Black",
+  "Other"
+)
+
+att.df.appandage = final.data2 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat.x <= 0) %>%
+  summarise(u.dui = mean(DUI_Total),
+            u.crashes = mean(n_crashes),
+            u.drug = mean(Poss_Drug_Total),
+            u.cann = mean(Poss_Cann_Total),
+            u.white.dui = mean(white_dui_rate),
+            u.black.dui = mean(black_dui_rate),
+            u.other.dui = mean(other_dui_rate),
+            u.white.drug = mean(white_drug_rate),
+            u.black.drug = mean(black_drug_rate),
+            u.other.drug = mean(other_drug_rate),
+            u.white.cann = mean(white_cann_rate),
+            u.black.cann = mean(black_cann_rate),
+            u.other.cann = mean(other_cann_rate))
+
+att.df.appandage = t(att.df.appandage)
+
+att.df = cbind(att.df, att.df.appandage)
+
+row.names(att.df) = NULL
+
+att.df = att.df %>%
+  mutate(delta = estimate / att.df.appandage * 100) %>%
+  select(-att.df.appandage)
+
+att.df$estimate[1:4] = formatC(att.df$estimate[1:4], format = "f", digits = 2)
+att.df$estimate[5:13] = as.numeric(att.df$estimate[5:13]) * 100
+att.df$estimate[5:13] = formatC(as.numeric(att.df$estimate[5:13]), format = "f", digits = 4)
+
+att.df$std.error = formatC(att.df$std.error, format = "f", digits = 4)
+
+att.df$statistic = formatC(att.df$statistic, format = "f", digits = 2)
+
+att.df$p.value = formatC(att.df$p.value, format = "f", digits = 4)
+
+att.df$delta = formatC(att.df$delta, format = "f", digits = 2)
+
+
+colnames(att.df) = c(
+  
+  "Outcome",
+  "ATT Estimate",
+  "Std. Error",
+  "t-stat",
+  "p-value",
+  "\\% Change$^1$"
+  
+)
+
+
+
+att.df %>%
+  kbl(caption = "Average Treatment Effect (ATT) Across Outcomes",
+      booktabs = T,
+      align = c("l", rep("c", 5)),
+      escape = FALSE) %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  pack_rows("Crash and Arrest Counts", 1, 4) %>%
+  pack_rows("DUI Rates", 5, 7) %>%
+  pack_rows("Any Drug Possession Rates", 8, 10) %>%
+  pack_rows("Cannabis Possession Rates", 11, 13) %>%
+  footnote(number = c("% Change relative to average before SC turn off"))
+
+```
+
+# Restrict to High Frequency SC All Jursitiction States
+
+* Using the "questionable" removed file, I then remove control states that are not "high" users of SC (in other word, I drop states that do not both high frequency and all jurisdiction SCs).
+
+```{r}
+
+final.data3 = final.data2 %>%
+  mutate(keep = ifelse(Treat1 == 0 & High_Frequency == 1 & Everywhere == 1 | Treat1 == 1, 1, 0)) %>%
+  filter(keep == 1)
+
+```
+
+```{r, fig.height=10}
+
+dui_event = feols(DUI_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                  weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+dui_event.sa = feols(DUI_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+a = ggiplot(list('TWFE' = dui_event, 'Sun & Abraham (2020)' = dui_event.sa),
+        main = 'Event Study: # DUI Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  ylim(-30000, 50000) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylab("Estimate")
+
+crashes_event = feols(n_crashes ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+crashes_event.sa = feols(n_crashes ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+b = ggiplot(list('TWFE' = crashes_event, 'Sun & Abraham (2020)' = crashes_event.sa),
+        main = 'Event Study: # Fatal Crashes', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-300, 700) +
+  ylab("Estimate")
+
+
+drug_event = feols(Poss_Drug_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+drug_event.sa = feols(Poss_Drug_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+c = ggiplot(list('TWFE' = drug_event, 'Sun & Abraham (2020)' = drug_event.sa),
+        main = 'Event Study: Total Drug Possession Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-16000, 15000) +
+  ylab("Estimate")
+
+cann_event = feols(Poss_Cann_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+cann_event.sa = feols(Poss_Cann_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+d = ggiplot(list('TWFE' = drug_event, 'Sun & Abraham (2020)' = drug_event.sa),
+        main = 'Event Study: Total Cannabis Possession Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "right") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-16000, 15000) +
+  ylab("Estimate")
+
+grid.arrange(b, a, c, d, ncol = 1)
+
+
+```
+
+```{r, fig.height=10}
+
+white_dui = feols(white_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+black_dui = feols(black_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+other_dui = feols(other_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+e = ggiplot(list('White Rate' = white_dui,
+             'Black Rate' = black_dui,
+             'Other Rate' = other_dui),
+        main = 'Event Study: DUI Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  ylim(-.006, .005) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+
+white_drug = feols(white_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+black_drug = feols(black_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+other_drug = feols(other_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+f = ggiplot(list('White Rate' = white_drug,
+             'Black Rate' = black_drug,
+             'Other Rate' = other_drug),
+        main = 'Event Study: All Drug Possession Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  ylim(-.01, .005) +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+white_cann = feols(white_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+black_cann = feols(black_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+other_cann = feols(other_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data3$population_nom,
+                  cluster = ~state,
+                  data = final.data3)
+
+g = ggiplot(list('White Rate' = white_cann,
+             'Black Rate' = black_cann,
+             'Other Rate' = other_cann),
+        main = 'Event Study: Cannabis Possession Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  ylim(-.002, .002) +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+
+grid.arrange(e, f, g, ncol = 1)
+
+```
+
+```{r}
+
+dui = tidy(
+  summary(dui_event.sa, agg = "att")
+)[1,]
+
+crash = tidy(
+  summary(crashes_event.sa, agg = "att")
+)[1,]
+
+drug = tidy(
+  summary(drug_event.sa, agg = "att")
+)[1,]
+
+cann = tidy(
+  summary(cann_event.sa, agg = "att")
+)[1,]
+
+wdui = tidy(
+  summary(white_dui, agg = "att")
+)[1,]
+
+bdui = tidy(
+  summary(black_dui, agg = "att")
+)[1,]
+
+odui = tidy(
+  summary(other_dui, agg = "att")
+)[1,]
+
+wdrug = tidy(
+  summary(white_drug, agg = "att")
+)[1,]
+
+bdrug = tidy(
+  summary(black_drug, agg = "att")
+)[1,]
+
+odrug = tidy(
+  summary(other_drug, agg = "att")
+)[1,]
+
+wcann = tidy(
+  summary(white_cann, agg = "att")
+)[1,]
+
+bcann = tidy(
+  summary(black_cann, agg = "att")
+)[1,]
+
+ocann = tidy(
+  summary(other_cann, agg = "att")
+)[1,]
+
+att.df = rbind(dui,
+               crash,
+               drug,
+               cann,
+               wdui,
+               bdui,
+               odui,
+               wdrug,
+               bdrug,
+               odrug,
+               wcann,
+               bcann,
+               ocann)
+
+att.df$term = c(
+  "DUI Arrests",
+  "Fatal Crashes",
+  "Any Drug Possession",
+  "Cannabis Possession",
+  "White",
+  "Black",
+  "Other",
+  "White",
+  "Black",
+  "Other",
+  "White",
+  "Black",
+  "Other"
+)
+
+att.df.appandage = final.data3 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat.x <= 0) %>%
+  summarise(u.dui = mean(DUI_Total),
+            u.crashes = mean(n_crashes),
+            u.drug = mean(Poss_Drug_Total),
+            u.cann = mean(Poss_Cann_Total),
+            u.white.dui = mean(white_dui_rate),
+            u.black.dui = mean(black_dui_rate),
+            u.other.dui = mean(other_dui_rate),
+            u.white.drug = mean(white_drug_rate),
+            u.black.drug = mean(black_drug_rate),
+            u.other.drug = mean(other_drug_rate),
+            u.white.cann = mean(white_cann_rate),
+            u.black.cann = mean(black_cann_rate),
+            u.other.cann = mean(other_cann_rate))
+
+att.df.appandage = t(att.df.appandage)
+
+att.df = cbind(att.df, att.df.appandage)
+
+row.names(att.df) = NULL
+
+att.df = att.df %>%
+  mutate(delta = estimate / att.df.appandage * 100) %>%
+  select(-att.df.appandage)
+
+att.df$estimate[1:4] = formatC(att.df$estimate[1:4], format = "f", digits = 2)
+att.df$estimate[5:13] = as.numeric(att.df$estimate[5:13]) * 100
+att.df$estimate[5:13] = formatC(as.numeric(att.df$estimate[5:13]), format = "f", digits = 4)
+
+att.df$std.error = formatC(att.df$std.error, format = "f", digits = 4)
+
+att.df$statistic = formatC(att.df$statistic, format = "f", digits = 2)
+
+att.df$p.value = formatC(att.df$p.value, format = "f", digits = 4)
+
+att.df$delta = formatC(att.df$delta, format = "f", digits = 2)
+
+
+colnames(att.df) = c(
+  
+  "Outcome",
+  "ATT Estimate",
+  "Std. Error",
+  "t-stat",
+  "p-value",
+  "\\% Change$^1$"
+  
+)
+
+
+
+att.df %>%
+  kbl(caption = "Average Treatment Effect (ATT) Across Outcomes",
+      booktabs = T,
+      align = c("l", rep("c", 5)),
+      escape = FALSE) %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  pack_rows("Crash and Arrest Counts", 1, 4) %>%
+  pack_rows("DUI Rates", 5, 7) %>%
+  pack_rows("Any Drug Possession Rates", 8, 10) %>%
+  pack_rows("Cannabis Possession Rates", 11, 13) %>%
+  footnote(number = c("% Change relative to average before SC turn off"))
+
+```
+
+# Restrict to only treated units
+
+* Identifying assumption is that the timing of the ban was random. Some people might not buy the comparison to the control group
+
+
+```{r}
+
+final.data4 = final.data3 %>%
+  filter(Treat1 == 1)
+
+
+```
+
+```{r, fig.height=10}
+
+dui_event = feols(DUI_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                  weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+dui_event.sa = feols(DUI_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+a = ggiplot(list('TWFE' = dui_event, 'Sun & Abraham (2020)' = dui_event.sa),
+        main = 'Event Study: # DUI Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  ylim(-30000, 50000) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylab("Estimate")
+
+crashes_event = feols(n_crashes ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+crashes_event.sa = feols(n_crashes ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+b = ggiplot(list('TWFE' = crashes_event, 'Sun & Abraham (2020)' = crashes_event.sa),
+        main = 'Event Study: # Fatal Crashes', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-300, 700) +
+  ylab("Estimate")
+
+
+drug_event = feols(Poss_Drug_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+drug_event.sa = feols(Poss_Drug_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+c = ggiplot(list('TWFE' = drug_event, 'Sun & Abraham (2020)' = drug_event.sa),
+        main = 'Event Study: Total Drug Possession Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-16000, 15000) +
+  ylab("Estimate")
+
+cann_event = feols(Poss_Cann_Total ~
+                    i(timetotreat.x, treated, ref = -1) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+cann_event.sa = feols(Poss_Cann_Total ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom  +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+d = ggiplot(list('TWFE' = drug_event, 'Sun & Abraham (2020)' = drug_event.sa),
+        main = 'Event Study: Total Cannabis Possession Arrests', ref.line = -1, pt.join = FALSE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  theme(legend.position = "right") +
+  theme(legend.title = element_blank()) +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Years to Sobriety Checkpoint Law Turn Off") +
+  ylim(-16000, 15000) +
+  ylab("Estimate")
+
+grid.arrange(b, a, c, d, ncol = 1)
+
+
+```
+
+```{r, fig.height=10}
+
+white_dui = feols(white_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+black_dui = feols(black_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+other_dui = feols(other_dui_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+e = ggiplot(list('White Rate' = white_dui,
+             'Black Rate' = black_dui,
+             'Other Rate' = other_dui),
+        main = 'Event Study: DUI Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  ylim(-.006, .005) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+
+white_drug = feols(white_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+black_drug = feols(black_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+other_drug = feols(other_poss_drug_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+f = ggiplot(list('White Rate' = white_drug,
+             'Black Rate' = black_drug,
+             'Other Rate' = other_drug),
+        main = 'Event Study: All Drug Possession Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  ylim(-.01, .005) +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+white_cann = feols(white_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+black_cann = feols(black_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+other_cann = feols(other_cann_rate ~
+                    sunab(cohort = treatyear.x,
+                          period = year) +
+                    unemp_rate +
+                    per_cap_income +
+                    population_nom +
+                    old65 |
+                    state + fyear.x,
+                    weights = final.data4$population_nom,
+                  cluster = ~state,
+                  data = final.data4)
+
+g = ggiplot(list('White Rate' = white_cann,
+             'Black Rate' = black_cann,
+             'Other Rate' = other_cann),
+        main = 'Event Study: Cannabis Possession Arrest Rate, By Race', ref.line = -1, pt.join = TRUE,
+        geom_style = "errorbar") +
+  ylim(-.002, .002) +
+  theme_bw() +
+  scale_x_continuous(breaks = -6:6, limits = c(-6.5, 6.5)) +
+  xlab("Time to Sobriety Checkpoint Elimination") +
+  facet_wrap(~group) +
+  theme(legend.position = "none") +
+  ylab("Estimate")
+
+
+grid.arrange(e, f, g, ncol = 1)
+
+```
+
+```{r}
+
+dui = tidy(
+  summary(dui_event.sa, agg = "att")
+)[1,]
+
+crash = tidy(
+  summary(crashes_event.sa, agg = "att")
+)[1,]
+
+drug = tidy(
+  summary(drug_event.sa, agg = "att")
+)[1,]
+
+cann = tidy(
+  summary(cann_event.sa, agg = "att")
+)[1,]
+
+wdui = tidy(
+  summary(white_dui, agg = "att")
+)[1,]
+
+bdui = tidy(
+  summary(black_dui, agg = "att")
+)[1,]
+
+odui = tidy(
+  summary(other_dui, agg = "att")
+)[1,]
+
+wdrug = tidy(
+  summary(white_drug, agg = "att")
+)[1,]
+
+bdrug = tidy(
+  summary(black_drug, agg = "att")
+)[1,]
+
+odrug = tidy(
+  summary(other_drug, agg = "att")
+)[1,]
+
+wcann = tidy(
+  summary(white_cann, agg = "att")
+)[1,]
+
+bcann = tidy(
+  summary(black_cann, agg = "att")
+)[1,]
+
+ocann = tidy(
+  summary(other_cann, agg = "att")
+)[1,]
+
+att.df = rbind(dui,
+               crash,
+               drug,
+               cann,
+               wdui,
+               bdui,
+               odui,
+               wdrug,
+               bdrug,
+               odrug,
+               wcann,
+               bcann,
+               ocann)
+
+att.df$term = c(
+  "DUI Arrests",
+  "Fatal Crashes",
+  "Any Drug Possession",
+  "Cannabis Possession",
+  "White",
+  "Black",
+  "Other",
+  "White",
+  "Black",
+  "Other",
+  "White",
+  "Black",
+  "Other"
+)
+
+att.df.appandage = final.data4 %>%
+  filter(treated == 1) %>%
+  filter(timetotreat.x <= 0) %>%
+  summarise(u.dui = mean(DUI_Total),
+            u.crashes = mean(n_crashes),
+            u.drug = mean(Poss_Drug_Total),
+            u.cann = mean(Poss_Cann_Total),
+            u.white.dui = mean(white_dui_rate),
+            u.black.dui = mean(black_dui_rate),
+            u.other.dui = mean(other_dui_rate),
+            u.white.drug = mean(white_drug_rate),
+            u.black.drug = mean(black_drug_rate),
+            u.other.drug = mean(other_drug_rate),
+            u.white.cann = mean(white_cann_rate),
+            u.black.cann = mean(black_cann_rate),
+            u.other.cann = mean(other_cann_rate))
+
+att.df.appandage = t(att.df.appandage)
+
+att.df = cbind(att.df, att.df.appandage)
+
+row.names(att.df) = NULL
+
+att.df = att.df %>%
+  mutate(delta = estimate / att.df.appandage * 100) %>%
+  select(-att.df.appandage)
+
+att.df$estimate[1:4] = formatC(att.df$estimate[1:4], format = "f", digits = 2)
+att.df$estimate[5:13] = as.numeric(att.df$estimate[5:13]) * 100
+att.df$estimate[5:13] = formatC(as.numeric(att.df$estimate[5:13]), format = "f", digits = 4)
+
+att.df$std.error = formatC(att.df$std.error, format = "f", digits = 4)
+
+att.df$statistic = formatC(att.df$statistic, format = "f", digits = 2)
+
+att.df$p.value = formatC(att.df$p.value, format = "f", digits = 4)
+
+att.df$delta = formatC(att.df$delta, format = "f", digits = 2)
+
+
+colnames(att.df) = c(
+  
+  "Outcome",
+  "ATT Estimate",
+  "Std. Error",
+  "t-stat",
+  "p-value",
+  "\\% Change$^1$"
+  
+)
+
+
+
+att.df %>%
+  kbl(caption = "Average Treatment Effect (ATT) Across Outcomes",
+      booktabs = T,
+      align = c("l", rep("c", 5)),
+      escape = FALSE) %>%
+  kable_styling(latex_options = c("hold_position")) %>%
+  pack_rows("Crash and Arrest Counts", 1, 4) %>%
+  pack_rows("DUI Rates", 5, 7) %>%
+  pack_rows("Any Drug Possession Rates", 8, 10) %>%
+  pack_rows("Cannabis Possession Rates", 11, 13) %>%
+  footnote(number = c("% Change relative to average before SC turn off"))
+
+```
